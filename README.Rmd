@@ -1,0 +1,426 @@
+---
+title: "global_analysis"
+author: "Birol Cabukusta"
+date: "2026-07-27"
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## GLOBAL ANALYSIS OF LTP KNOCKOUT LIBRARY IN MELJUSO CELLS
+
+Total cell lipidomics
+
+```{r load packages, echo=F, warning=F}
+library(ggplot2)
+library(readr)
+
+library(reshape2)
+library(dplyr)
+library(ggrepel)
+library(ggbeeswarm)
+library(ggthemes)
+library(ggsignif)
+library(tidyr)
+library(stringr)
+# library(purrr)
+# library(limma)
+# library(reshape2)
+# library(GGally)
+# library(tibble)
+# library(stringr)
+# library(gridExtra)
+# library(png)
+# library(purrr)
+# library(viridis) 
+# library(tidyverse)
+```
+
+## Load data
+
+```{r load data, echo=FALSE}
+data1 = read.csv('data/LTP_classes_perc_raw.csv')
+data2 = read.csv('data/LTP_classes_perc_stat.csv')
+
+```
+
+## Define variables
+
+```{r}
+seleLipids <- c('PC','LPC','PE','LPE','PS','PA','PI','PG',
+                'DCER','CER','SM','HCER','LCER',
+                'DAG','TAG','CE','FFA')
+```
+
+## Z-scores
+
+```{r z-score}
+ggplot(data2, aes(Lipid, zscore.mean,
+
+                            label = Target.Gene.Symbol))+
+  #theme_base() +
+  theme(axis.text.x=element_text(angle =45, hjust = 1)) +
+  #scale_fill_gradient(high = 'grey50', low  = '#CC0000') +
+  scale_fill_gradient(high = '#CC0000', low  = 'grey50') +
+  geom_quasirandom(color = 'black', shape = 21, aes(size = 5- zscore.sd,
+                                                    fill = zscore.sd )) +
+  scale_size(range = c(0, 5)) +
+  scale_x_discrete(limits = seleLipids) +
+  ylim(-6,6) +
+  geom_text_repel(data = subset(data2, abs(zscore.mean) > 2),
+                   min.segment.length = 0, seed = 42, box.padding = 0.5,
+                  max.overlaps = Inf,
+                  max.time = 10, max.iter = 1e5) +
+  geom_hline(yintercept = 1.5, color = 'grey50', linetype = 2) +
+  geom_hline(yintercept = -1.5, color = 'grey50', linetype = 2) +
+  ggtitle("Distribution of the z scores")
+
+
+# LOOK AT THE CONTROLS
+ggplot(data = data2 %>% subset(sampleRoster  %in% 91:96),
+       aes(Lipid, zscore.mean)) +
+  theme_base() +
+  theme(axis.text.x=element_text(angle =45, hjust = 1)) +
+  geom_boxplot(fill = 'grey90', outlier.alpha = 1) +
+  scale_x_discrete(limits = seleLipids) +
+  geom_hline(yintercept = c(-2, -1, 1,2), color = 'grey50', linetype = 2) +
+  scale_y_continuous(limits = c(-5,5), breaks = c(-5,-2,-1,0,1,2,5)) +
+  ggtitle('Boundary of the gNT controls')
+  
+  
+```
+
+## Percentages of individual classes
+
+```{r percentages_ind_classes, fig.height = 18, fig.width=7}
+
+labels <- data2 %>%
+  group_by(Lipid) %>%
+   group_modify(~ bind_rows(
+          slice_max(.x, order_by = percentage.mean, n = 3, with_ties = FALSE),
+    slice_min(.x, order_by = percentage.mean, n = 3, with_ties = FALSE)
+   )) %>%
+  ungroup() %>%
+  distinct()
+
+
+
+ggplot(data2,
+         aes(percentage.mean, Lipid)) +
+    #geom_boxplot() +
+    geom_quasirandom(shape = 21, color = '#4175FF', fill = '#A5A5FF') +
+    theme_clean(base_size = 12, base_family = 'Arial') +
+    facet_wrap(Lipid~.,  scales='free', ncol = 2) +
+   geom_text_repel(data = labels, aes(label = Target.Gene.2) , max.overlaps = Inf, nudge_y = 0.4, size = 3) +
+    #facet_grid(Lipid~., scales='free')+
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+   xlab("Percentage %") +
+    ggtitle("Percentages of Individual Classes","Top / Bottom 3 are plotted") 
+    
+
+```
+
+
+## CORRELATION ANALYSIS
+
+```{R CORRELATION, fig.width = 15, fig.height = 15}
+library(ggcorrplot)
+library(tibble)
+library(GGally)
+
+
+## CORRELATION BASED ON AVERAGE PERCENTAGES ##
+
+matrix.percentages <- data2 %>% 
+   dcast(Target.Gene.Symbol~Lipid, value.var = 'percentage.mean') %>%
+   column_to_rownames(var = 'Target.Gene.Symbol')
+
+correlation.percentages <- cor(matrix.percentages)
+p.values.matrix.percentages <- cor_pmat(matrix.percentages) #p-values matrix
+
+#this is slowing it down
+#ggpairs(matrix.percentages[-1]) 
+
+#
+ggcorrplot(correlation.percentages, hc.order = TRUE, outline.col = "white")
+ggcorrplot(correlation.percentages, hc.order = TRUE, outline.col = "white", 
+           type = "lower",
+           lab=T,
+           insig = 'blank', 
+           ggtheme = theme_base, 
+           colors = c("blue", "white", "red"),
+           p.mat = p.values.matrix.percentages,
+           sig.level = 0.051#calculate p-values using the original matrix!
+) +
+   scale_y_discrete(position = 'right')
+
+
+#Dendograms
+dd.ltp <- dist(scale(matrix.percentages %>% t), method = "euclidean")
+hc.ltp <- hclust(dd.ltp, method = 'complete')
+plot(hc.ltp, hang = -1, cex = 0.8)
+
+dd.lipid <- dist(scale(matrix.percentages), method = "euclidean")
+hc.lipid <- hclust(dd.lipid, method = 'complete')
+plot(hc.lipid, hang = -1, cex = 0.6)
+
+```
+
+
+## ACYL CHAINS
+```{R acyl chains}
+acyls1 = read.csv('data/LTP_acyl_concentrations_raw1.csv')
+acyls1 %>% colnames
+
+
+
+#### START SIMPLE ####
+#PUFA index within the same class
+PufaIndex1 = merge(
+  acyls1 %>% 
+    group_by(Target.Gene.Symbol, SampleID, Class) %>%
+    filter(Total_tail_bend>3) %>% 
+    summarise(Class_pufas=sum(nmolg, na.rm = T)) %>% 
+    ungroup() , 
+  acyls1 %>% 
+    group_by(Target.Gene.Symbol, SampleID, Class) %>%
+    summarise(Class_total=sum(nmolg, na.rm = T)) %>% 
+    ungroup(),
+  by=c(1:3) 
+) %>% 
+  mutate(PufaRatio = Class_pufas/Class_total) 
+
+PufaIndex2 = PufaIndex1 %>% 
+  group_by(Target.Gene.Symbol, Class) %>% #take the mean and sd of each percentage
+  summarize(PufaRatio.Mean = mean(PufaRatio, na.rm = T),
+            PufaRatio.Sd = sd(PufaRatio, na.rm = T))
+
+
+
+PufaIndex2.labels <- PufaIndex2 %>%
+  group_by(Class) %>%
+   group_modify(~ bind_rows(
+          slice_max(.x, order_by = PufaRatio.Mean, n = 3, with_ties = FALSE),
+    slice_min(.x, order_by = PufaRatio.Mean, n = 3, with_ties = FALSE)
+   )) %>%
+  ungroup() %>%
+  distinct()
+
+
+PufaIndex2%>% 
+  ggplot(aes(Class, PufaRatio.Mean)) +
+  geom_quasirandom(shape = 21, color = '#4175FF', fill = '#A5A5FF') +
+  theme_clean(base_size = 12, base_family = 'Arial') +
+  geom_text_repel(data = PufaIndex2.labels,aes(label = Target.Gene.Symbol), max.overlaps = Inf,  size = 3) 
+
+
+
+PufaIndex1%>% 
+  filter(Target.Gene.Symbol %in%  c("PTPN9",'LY86','STOML1','ACOT11','CLVS1','SEC14L1','SEC14L3','STARD7')) %>% 
+  #filter(Class %in% c('PE','PEO','PEP') ) %>% 
+  ggplot(aes(Class, PufaRatio, color = Target.Gene.Symbol)) +
+  # geom_boxplot(data = PufaIndex1%>% 
+  #               filter(Target.Gene.Symbol %in% paste0('NonTarget_',1:6))) +
+  facet_grid(Target.Gene.Symbol~.) +
+  geom_boxplot() +
+  geom_quasirandom() +
+  theme_base(base_size = 12, base_family = 'Arial') 
+
+### take it to next level
+
+UnsaturationLevels = 
+  acyls1 %>%  
+  group_by(Target.Gene.Symbol, SampleID, Class) %>%
+  mutate(abundance= nmolg/sum(nmolg, na.rm = T)) %>% 
+  reframe(UnsatLevel = sum(abundance*Total_tail_bend, na.rm = T)) 
+
+UnsaturationLevels %>% 
+  ggplot(aes(Class, UnsatLevel)) +
+  geom_quasirandom()
+
+UnsaturationLevel.labels <- UnsaturationLevels %>%
+  group_by(Class) %>%
+   group_modify(~ bind_rows(
+          slice_max(.x, order_by = UnsatLevel, n = 3, with_ties = FALSE),
+    slice_min(.x, order_by = UnsatLevel, n = 3, with_ties = FALSE)
+   )) %>%
+  ungroup() %>%
+  distinct()
+
+UnsaturationLevels %>% 
+  ggplot(aes(Class, UnsatLevel)) +
+  geom_quasirandom(shape = 21, color = '#4175FF', fill = '#A5A5FF') +
+  theme_clean(base_size = 12, base_family = 'Arial') +
+  geom_text_repel(data = UnsaturationLevel.labels ,aes(label = Target.Gene.Symbol), max.overlaps = Inf,  size = 3) 
+
+
+
+
+# END #### Yore hia
+
+
+
+# Acyls1 %>% 
+#   group_by(Target.Gene.Symbol, SampleID, Tail) %>%
+#   summarise(sumTails=sum(nmolg, na.rm = T)) %>% # sum all FA within each sample
+#   ungroup() %>% 
+#   group_by(SampleID) %>% 
+#   mutate(percTail = sumTails / sum(sumTails, na.rm = T)) %>% # take the percentages within each group
+#   ungroup() %>%
+#   group_by(Target.Gene.Symbol, Tail) %>% #take the mean and sd of each percentage
+#   summarize(tail.mean = mean(percTail, na.rm = T),
+#             tail.sd = sd(percTail, na.rm = T))%>% 
+#   ggplot(aes (tail.mean, Tail, label = Target.Gene.Symbol)) +
+#   theme_clean(base_size = 12, base_family = 'Arial') +
+#   #facet_wrap(Tail~.,  scales='free', ncol = 1) +
+#   geom_quasirandom() 
+
+# Acyls1 %>% 
+#     group_by(Target.Gene.Symbol, SampleID, Class2) %>%
+#     summarise(ClassTotal=sum(nmolg, na.rm = T)) 
+
+
+
+# labels <- data2 %>%
+#   group_by(Lipid) %>%
+#    group_modify(~ bind_rows(
+#           slice_max(.x, order_by = percentage.mean, n = 3, with_ties = FALSE),
+#     slice_min(.x, order_by = percentage.mean, n = 3, with_ties = FALSE)
+#    )) %>%
+#   ungroup() %>%
+#   distinct()
+
+
+
+# ggplot(data2,
+#          aes(percentage.mean, Lipid)) +
+#     #geom_boxplot() +
+#     geom_quasirandom(shape = 21, color = '#4175FF', fill = '#A5A5FF', dodge = 1) +
+#     theme_clean(base_size = 12, base_family = 'Arial') +
+#    geom_text_repel(data = labels,aes(label = Target.Gene.2), max.overlaps = Inf, nudge_y = 0.4, size = 3) +
+#     facet_wrap(Lipid~.,  scales='free', ncol = 2) +
+#     #facet_grid(Lipid~., scales='free')+
+#     theme(axis.text.y = element_blank(),
+#           axis.ticks.y = element_blank()) +
+#    xlab("Percentage %") +
+#     ggtitle("Percentages of Individual Classes","Top / Bottom 3 are plotted") 
+#     
+#########
+
+# quad5 = quad3%>% 
+#   mutate(tail.length = substr(Tails2 ,1, str_locate(Tails2,':')-1),
+#          tail.bend = substr(Tails2, str_locate(Tails2,':')+1, nchar(Tails2))) 
+# 
+# 
+# quad5.tail = quad5%>% 
+#   group_by(Target.Gene.Symbol, SampleID, tail.length) %>%
+#   summarize(tail.length.sum = sum(nmolg, na.rm = T)) %>% 
+#   ungroup %>% 
+#   group_by(SampleID) %>% 
+#   mutate(ratioTails = tail.length.sum / sum(tail.length.sum, na.rm = T)) %>% # take the percentages within each group
+#   ungroup() %>%
+#   group_by(Target.Gene.Symbol, tail.length) %>% 
+#   summarize(length.mean = mean(ratioTails, na.rm=T),
+#             length.sd = sd(ratioTails, na.rm=T))
+# 
+# 
+# ggplot(quad5.tail, aes(tail.length, length.mean, fill = length.sd, label = Target.Gene.Symbol)) +
+#   geom_quasirandom(shape = 21, size = 2)+
+#   facet_grid(.~tail.length, scales = 'free') 
+# 
+# 
+# 
+# quad5.bond = quad5%>% 
+#   group_by(Target.Gene.Symbol, SampleID, tail.bend) %>%
+#   summarize(tail.bend.sum = sum(nmolg, na.rm = T)) %>% 
+#   ungroup %>% 
+#   group_by(SampleID) %>% 
+#   mutate(ratioTails = tail.bend.sum / sum(tail.bend.sum, na.rm = T)) %>% # take the percentages within each group
+#   ungroup() %>%
+#   group_by(Target.Gene.Symbol, tail.bend) %>% 
+#   summarize(bend.mean = mean(ratioTails, na.rm=T),
+#             bend.sd = sd(ratioTails, na.rm=T))
+# 
+# ggplot(quad5.bond, aes(tail.bend, bend.mean, fill = bend.sd, label = Target.Gene.Symbol)) +
+#   geom_quasirandom(shape = 21, size = 2) 
+# 
+# 
+# 
+# #
+# 
+# 
+# quad6 = quad4%>% 
+#   mutate(tail.length = substr(Tails2 ,1, str_locate(Tails2,':')-1),
+#          tail.bend = substr(Tails2, str_locate(Tails2,':')+1, nchar(Tails2)))
+# 
+# 
+# 
+# quad6 %>%
+#   ggplot(aes(Target.Gene.Symbol, tail.mean, fill = tail.length)) +
+#   geom_col() +
+#   theme_base() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# quad6 %>% 
+#   ggplot(aes(tail.mean, Target.Gene.Symbol, fill = tail.bend)) +
+#   geom_col() +
+#   theme_base() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# 
+# quad5.bond %>%
+#   mutate(Target.Gene.Symbol = factor(Target.Gene.Symbol,levels = quad5.bond %>%
+#                                        filter(tail.bend == 0) %>%
+#                                        arrange(bend.mean) %>%
+#                                        pull(Target.Gene.Symbol)
+#   )
+#   ) %>% 
+#   ggplot(aes(bend.mean, Target.Gene.Symbol)) +
+#   geom_col(aes(fill = tail.bend))
+
+
+# normalize data ####
+## normalize to popc & separate Class/Tail
+# popc.identifier <-  quad2 %>%
+#   group_by(SampleID) %>%
+#   filter(Type2 == 'PC160181') %>%
+#   summarise(total.popc = sum(nmolg, na.rm = T))
+# 
+# quad2 <- quad2 %>%
+#   merge(popc.identifier, by='SampleID',all.x = T) %>%
+#   group_by(SampleID) %>%
+#   mutate(norm.popc = nmolg / total.popc) 
+# 
+# #normalize to average of (91:96)
+# sample.normed <-  quad2 %>%
+#   group_by(Type2) %>%
+#   filter(Roster %in% c(91:96)) %>%
+#   summarise(norm.popc.control.mean = mean(norm.popc, na.rm = T)) 
+# 
+# quad7 <- quad2 %>%
+#   merge(sample.normed, by=c('Type2'),all.x = T) %>%
+#   mutate(
+#     double_normed_popc = norm.popc / norm.popc.control.mean,
+#     GeneID2 = str_replace(Target.Gene.Symbol, 'NonTarget..', 'NT')) 
+# 
+# head(quad7)
+
+
+
+
+
+#commit by "git commit -m "Update files"
+
+```
+
+git config http.postBuffer 524288000 
+git pull & git push 
+git commit -m “Update files” 
+git pull & git push
+
+
