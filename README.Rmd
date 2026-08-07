@@ -1,5 +1,5 @@
 ---
-title: "global_analysis"
+title: "LTP KO library analysis"
 author: "Birol Cabukusta"
 date: "2026-07-27"
 output: github_document
@@ -8,10 +8,13 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = F) 
+
 ```
 
+
 ## GLOBAL ANALYSIS OF LTP KNOCKOUT LIBRARY IN MELJUSO CELLS
+
 
 Total cell lipidomics
 
@@ -175,7 +178,7 @@ plot(hc.lipid, hang = -1, cex = 0.6)
 ## ACYL CHAINS
 ```{R acyl chains}
 acyls1 = read.csv('data/LTP_acyl_concentrations_raw1.csv')
-acyls1 %>% colnames
+#acyls1 %>% colnames
 
 
 
@@ -418,9 +421,14 @@ UnsaturationLevels %>%
 
 ```
 
-git config http.postBuffer 524288000 
-git pull & git push 
-git commit -m “Update files” 
-git pull & git push
+
+Original commit
+``git commit -m "initial commit"``
+``git push origin main``
+
+``git config http.postBuffer 524288000 ``
+``git pull & git push ``
+``git commit -m “Update files” ``
+``git pull & git push``
 
 
