@@ -1,0 +1,3084 @@
+---
+title: "GPT analysis 2"
+author: "Birol Cabukusta"
+date: "2026-08-07"
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Yes. I would make this a **different analysis from the previous one**. The central quantities become:
+
+* `SampleMolPct`: each lipid species as % of all measured lipid molecules in that sample.
+* `ClassMolPct`: each lipid class as % of all measured lipid molecules in that sample.
+* `WithinClassPct`: each lipid species as % of its own lipid class.
+
+The third quantity is the key one for compensation. If total PC stays similar but PC shifts from 34:1/36:1 toward 36:4/38:4, that is a strong **within-class remodelling phenotype** even though total PC barely changes.
+
+Below is an R Markdown-ready workflow.
+
+---
+
+# 1. Setup
+
+```{R}
+# ============================================================
+# LTP KO LIBRARY
+# COMPOSITIONAL LIPID + SATURATION REMODELLING ANALYSIS
+# ============================================================
+
+library(tidyverse)
+library(ggrepel)
+
+knitr::opts_chunk$set(
+  echo = F,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 7
+)
+
+theme_set(
+  theme_bw(base_size = 11) +
+    theme(
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "grey95")
+    )
+)
+
+options(dplyr.summarise.inform = FALSE)
+
+
+# ------------------------------------------------------------
+# SETTINGS
+# ------------------------------------------------------------
+
+# Change this to the name(s) of your control samples.
+#
+# IMPORTANT:
+# Controls are NOT used for normalization.
+# They are only used later as a biological reference
+# when asking whether a KO composition differs from normal.
+
+CONTROL_GENES <- paste0("NonTarget_", 1:6)   # <-- EDIT
+
+
+# For detecting compensation:
+#
+# "controls"       = compare the within-sample-normalized
+#                    composition to controls
+#
+# "library_median" = compare each LTP to the median
+#                    composition of the complete screen
+
+REFERENCE_MODE <- "controls"
+
+
+# Manual exclusions.
+#
+# Run the QC section first.
+# Then add problematic samples/genes here and rerun.
+
+EXCLUDE_GENES <- c(
+  # "GENE1",
+  # "GENE2"
+)
+
+EXCLUDE_SAMPLE_KEYS <- c(
+  # "GENE1__Sample1__Extraction1__Roster1"
+)
+
+
+# Number of biological replicates we ideally want
+MIN_REPLICATES <- 2
+
+
+# Replicate correlation below this is worth inspecting.
+MIN_REPLICATE_CORRELATION <- 0.70
+
+
+# Compensation thresholds.
+#
+# A class is considered "stable" when its abundance differs
+# by less than:
+#
+# max(1 percentage point, 20% of its reference abundance)
+
+CLASS_STABILITY_MIN_PP <- 1
+CLASS_STABILITY_RELATIVE <- 0.20
+
+
+# At least this much of the within-class saturation
+# distribution must be rearranged.
+
+MIN_REDISTRIBUTION_PERCENT <- 10
+
+
+# Replicate saturation profiles should point in approximately
+# the same direction.
+
+MIN_PROFILE_AGREEMENT <- 0.50
+
+
+# Heatmap sizes
+TOP_N_SPECIES <- 75
+```
+
+---
+
+# 2. Prepare the raw data
+
+```{R}
+# ============================================================
+# DATA PREPARATION
+# ============================================================
+acyls1 = read_csv("~/Desktop/GitProjects/ltp_library_analysis/data/LTP_acyl_concentrations_raw1.csv")
+
+acyls1 <- acyls1 %>% 
+   mutate(X = paste0(Class, "(",Tails,")")) 
+
+
+acyls_raw <- acyls1 %>%
+   
+   mutate(
+      Gene = as.character(Target.Gene.Symbol), 
+      LipidSpecies = as.character(X),
+      Class = as.character(Class),
+      nmol = as.numeric(nmolg), 
+      TotalDB = as.numeric(Total_tail_bend), 
+      TotalLength = as.numeric(Total_tail_length),
+      Tail1DB = as.numeric(Tail_1_bend),
+      Tail2DB = as.numeric(Tail_2_bend),
+      Tail1Length = as.numeric(Tail_1_length),
+      Tail2Length = as.numeric(Tail_2_length),
+      ExpectedTails = readr::parse_number(as.character(Tails)),
+      Group = if_else(Gene %in% CONTROL_GENES, "CTRL", "KO"),
+      SampleKey = paste(Gene, SampleID, Extraction, Roster, sep = "__"),
+      Feature = paste(Class, LipidSpecies, sep = " | ")
+   ) %>%
+   filter(!is.na(Gene),
+          !is.na(Class),
+          !is.na(LipidSpecies),
+          is.finite(nmol),
+          nmol >= 0)
+```
+
+Check the samples:
+
+```{R}
+acyls_raw %>%
+  distinct(
+    Gene, SampleID, Extraction, Roster, SampleKey
+  ) %>%
+  arrange(Gene,SampleID) %>%
+  print(n = Inf)
+```
+
+---
+
+# 3. Function for within-sample normalization
+
+This is now the core of the analysis.
+
+```{R}
+make_species_table <- function(dat) {
+  dat %>%
+    group_by(
+      SampleKey,Gene,Group,LBP_Family,SampleID,Extraction,Roster,
+      Type2,Class,LipidSpecies,Feature,Tails,Tail_1,Tail1Length,
+      Tail1DB,Tail_2,Tail2Length,Tail2DB,
+      TotalLength,TotalDB,ExpectedTails
+    ) %>%
+
+    summarise(
+      nmol =sum(nmol,na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+
+    # ---------------------------------
+    # FIRST NORMALIZATION:
+    # each species as fraction of
+    # the complete sample lipidome
+    # ---------------------------------
+
+    group_by(
+      SampleKey
+    ) %>%
+
+    mutate(
+      SampleTotalNmol =sum(nmol,na.rm = TRUE),
+      SampleMolFraction = nmol / SampleTotalNmol,
+      SampleMolPct =
+        100 *
+        SampleMolFraction
+    ) %>%
+
+    ungroup() %>%
+
+    # ---------------------------------
+    # SECOND NORMALIZATION:
+    # species as fraction of its class
+    #
+    # This is used for saturation
+    # redistribution / compensation.
+    # ---------------------------------
+
+    group_by(
+      SampleKey,
+      Class
+    ) %>%
+
+    mutate(
+
+      ClassNmol =
+        sum(
+          nmol,
+          na.rm = TRUE
+        ),
+
+      ClassMolPct =
+        100 *
+        ClassNmol /
+        first(
+          SampleTotalNmol
+        ),
+
+      WithinClassFraction =
+        nmol /
+        ClassNmol,
+
+      WithinClassPct =
+        100 *
+        WithinClassFraction
+    ) %>%
+
+    ungroup()
+}
+```
+
+Initial normalization, before exclusions:
+
+```{R}
+species_initial <-
+  make_species_table(
+    acyls_raw
+  )
+```
+
+Check that each sample sums to 100%:
+
+```{R}
+species_initial %>%
+
+  group_by(
+    SampleKey
+  ) %>%
+
+  summarise(
+    TotalPct =
+      sum(
+        SampleMolPct
+      ),
+    .groups = "drop"
+  ) %>%
+
+  summary()
+```
+
+These should all be approximately `100`.
+
+---
+
+# 4. QC before excluding anything
+
+Because the analysis is compositional, I would assess replicate similarity using a **CLR-like transformation of the within-sample proportions**, rather than raw nmol.
+
+```{R}
+# ============================================================
+# QC
+# ============================================================
+
+clr_transform <- function(x) {
+
+  x <- as.numeric(x)
+
+  positive <-
+    x[
+      is.finite(x) &
+      x > 0
+    ]
+
+  if (length(positive) == 0) {
+    return(
+      rep(
+        0,
+        length(x)
+      )
+    )
+  }
+
+  pseudo <-
+    min(positive) / 2
+
+  lx <-
+    log(
+      x +
+      pseudo
+    )
+
+  lx -
+    mean(lx)
+}
+
+
+safe_cor <- function(x, y) {
+
+  ok <-
+    is.finite(x) &
+    is.finite(y)
+
+  if (sum(ok) < 5)
+    return(NA_real_)
+
+  if (
+    sd(x[ok]) == 0 ||
+    sd(y[ok]) == 0
+  )
+    return(NA_real_)
+
+  cor(
+    x[ok],
+    y[ok],
+    method = "spearman"
+  )
+}
+```
+
+Create sample × species matrix:
+
+```{R}
+qc_wide <- species_initial %>%
+
+  group_by(
+    SampleKey,
+    Feature
+  ) %>%
+
+  summarise(
+    SampleMolPct =
+      sum(
+        SampleMolPct
+      ),
+    .groups = "drop"
+  ) %>%
+
+  pivot_wider(
+    names_from =
+      Feature,
+    values_from =
+      SampleMolPct,
+    values_fill = 0
+  )
+
+
+qc_ids <-
+  qc_wide$SampleKey
+
+
+qc_matrix <-
+  qc_wide %>%
+  select(
+    -SampleKey
+  ) %>%
+  as.matrix()
+
+
+rownames(qc_matrix) <-
+  qc_ids
+
+
+qc_clr <-
+  t(
+    apply(
+      qc_matrix,
+      1,
+      clr_transform
+    )
+  )
+```
+
+Sample metadata:
+
+```{R}
+sample_metadata <- species_initial %>%
+
+  distinct(
+    SampleKey,
+    Gene,
+    Group,
+    SampleID,
+    Extraction,
+    Roster,
+    LBP_Family
+  )
+```
+
+---
+
+# 5. Replicate-to-consensus correlation
+
+For every replicate, compare its lipidome with the median of the other replicates for that same LTP.
+
+```{R}
+replicate_correlations <-
+
+  map_dfr(
+
+    unique(
+      sample_metadata$Gene
+    ),
+
+    function(gene_i) {
+
+      ids <-
+        sample_metadata %>%
+        filter(
+          Gene == gene_i
+        ) %>%
+        pull(
+          SampleKey
+        )
+
+
+      if (length(ids) < 2) {
+
+        return(
+          tibble(
+            SampleKey = ids,
+            ReplicateConsensusR =
+              NA_real_
+          )
+        )
+      }
+
+
+      map_dfr(
+
+        ids,
+
+        function(id_i) {
+
+          other_ids <-
+            setdiff(
+              ids,
+              id_i
+            )
+
+
+          consensus <-
+            apply(
+              qc_clr[
+                other_ids,
+                ,
+                drop = FALSE
+              ],
+              2,
+              median,
+              na.rm = TRUE
+            )
+
+
+          tibble(
+
+            SampleKey =
+              id_i,
+
+            ReplicateConsensusR =
+              safe_cor(
+                qc_clr[
+                  id_i,
+                ],
+                consensus
+              )
+          )
+        }
+      )
+    }
+  )
+```
+
+Sample totals:
+
+```{R}
+qc_summary <- species_initial %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    SampleID
+  ) %>%
+
+  summarise(
+
+    TotalNmol =
+      first(
+        SampleTotalNmol
+      ),
+
+    DetectedSpecies =
+      sum(
+        nmol > 0
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  left_join(
+    replicate_correlations,
+    by = "SampleKey"
+  ) %>%
+
+  mutate(
+
+    BadReplicate =
+      !is.na(
+        ReplicateConsensusR
+      ) &
+      ReplicateConsensusR <
+        MIN_REPLICATE_CORRELATION
+  )
+```
+
+Plot:
+
+```{R}
+ggplot(
+  qc_summary,
+  aes(
+    x = Gene,
+    y =
+      ReplicateConsensusR
+  )
+) +
+
+  geom_hline(
+    yintercept =
+      MIN_REPLICATE_CORRELATION,
+    linetype = 2
+  ) +
+
+  geom_point(
+    aes(
+      shape =
+        BadReplicate
+    ),
+    position =
+      position_jitter(
+        width = 0.15
+      ),
+    size = 2.5
+  ) +
+
+  geom_text_repel(
+
+    data =
+      qc_summary %>%
+      filter(
+        BadReplicate
+      ),
+
+    aes(
+      label =
+        paste0(
+          Gene,
+          " / ",
+          SampleID
+        )
+    ),
+
+    size = 3,
+    max.overlaps = Inf
+  ) +
+
+  coord_flip() +
+
+  labs(
+    title =
+      "Reproducibility of within-sample-normalized lipidomes",
+    x = NULL,
+    y =
+      "Correlation with other replicates"
+  )
+```
+
+This is where I would identify the obviously non-reproducible samples.
+
+Print their exact keys:
+
+```{R}
+qc_summary %>%
+
+  filter(
+    BadReplicate
+  ) %>%
+
+  select(
+    Gene,
+    SampleID,
+    SampleKey,
+    ReplicateConsensusR
+  ) %>%
+
+  arrange(
+    ReplicateConsensusR
+  ) %>%
+
+  print(
+    n = Inf
+  )
+```
+
+Then put the problematic ones into `EXCLUDE_SAMPLE_KEYS` at the top.
+
+---
+
+# 6. Apply exclusions and renormalize
+
+This renormalization step is important: if a complete sample is removed, no issue. The percentages of the remaining samples are calculated independently anyway.
+
+```{R}
+EXCLUDE_SAMPLE_KEYS = c(
+   "COL4A3BP__K90__K__90",
+   "GLTPD2__H45__H__45",
+   "SEC14L2__J49__J__49"
+)
+
+acyls_clean <- acyls_raw %>%
+
+  filter(
+    !Gene %in%
+      EXCLUDE_GENES,
+    !SampleKey %in%
+      EXCLUDE_SAMPLE_KEYS
+  )
+
+
+species <-
+  make_species_table(
+    acyls_clean
+  )
+```
+
+---
+
+# Part A — Overview of lipid classes
+
+# 7. Class composition for each sample
+
+```{R}
+class_sample <- species %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class
+  ) %>%
+
+  summarise(
+
+    ClassNmol =
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    ClassMolPct =
+      sum(
+        SampleMolPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Thus:
+
+[
+\text{ClassMolPct}
+==================
+
+100\times
+\frac{\sum \text{nmol within class}}
+{\sum \text{nmol all lipids}}
+]
+
+No control normalization is involved.
+
+---
+
+# 8. Median class composition per LTP
+
+```{R}
+class_gene <- class_sample %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class
+  ) %>%
+
+  summarise(
+
+    n =
+      n_distinct(
+        SampleKey
+      ),
+
+    MedianClassPct =
+      median(
+        ClassMolPct,
+        na.rm = TRUE
+      ),
+
+    MeanClassPct =
+      mean(
+        ClassMolPct,
+        na.rm = TRUE
+      ),
+
+    IQRClassPct =
+      IQR(
+        ClassMolPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+---
+
+# 9. Absolute class-composition heatmap
+
+I would show the actual percentages first.
+
+```{R}
+gene_order <- class_gene %>%
+
+  distinct(
+    Gene,
+    LBP_Family
+  ) %>%
+
+  arrange(
+    LBP_Family,
+    Gene
+  ) %>%
+
+  pull(
+    Gene
+  )
+
+
+class_gene_plot <- class_gene %>%
+
+  mutate(
+    Gene =
+      factor(
+        Gene,
+        levels =
+          gene_order
+      )
+  )
+
+
+ggplot(
+  class_gene_plot,
+  aes(
+    x = Class,
+    y = Gene,
+    fill =
+      MedianClassPct
+  )
+) +
+
+  geom_tile() +
+
+  scale_fill_viridis_c(
+    name =
+      "Median\nmol %"
+  ) +
+
+  labs(
+    title =
+      "Lipid-class composition of the LTP knockout library",
+    subtitle =
+      "Each sample is normalized internally to 100%",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+---
+
+# 10. Relative class abnormalities across the library
+
+The absolute plot is dominated by naturally abundant classes such as PC.
+
+For detecting unusual LTP phenotypes, make another heatmap that scales **each class across the library**.
+
+This is visualization only. It is not control normalization.
+
+```{R}
+class_gene_z <- class_gene %>%
+
+  group_by(
+    Class
+  ) %>%
+
+  mutate(
+
+    ClassMedian =
+      median(
+        MedianClassPct,
+        na.rm = TRUE
+      ),
+
+    ClassMAD =
+      mad(
+        MedianClassPct,
+        na.rm = TRUE
+      ),
+
+    ClassZ =
+      if_else(
+        ClassMAD > 0,
+        (
+          MedianClassPct -
+          ClassMedian
+        ) /
+          ClassMAD,
+        0
+      )
+  ) %>%
+
+  ungroup()
+```
+
+```{R}
+ggplot(
+  class_gene_z,
+  aes(
+    x = Class,
+    y = Gene,
+    fill = ClassZ
+  )
+) +
+
+  geom_tile() +
+
+  scale_fill_gradient2(
+    midpoint = 0,
+    name =
+      "Robust\nz-score"
+  ) +
+
+  labs(
+    title =
+      "Relative lipid-class phenotypes",
+    subtitle =
+      "Values are scaled within each lipid class across the complete library",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+This should make things such as the ORP9/ORP11 SM phenotype much easier to see than the absolute mol-% plot.
+
+---
+
+# 11. Stacked class-composition plot for selected LTPs
+
+For follow-up figures:
+
+```{R}
+plot_class_composition <- function(genes) {
+
+  class_sample %>%
+
+    filter(
+      Gene %in% genes
+    ) %>%
+
+    group_by(
+      Gene,
+      Class
+    ) %>%
+
+    summarise(
+      ClassMolPct =
+        median(
+          ClassMolPct,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    ) %>%
+
+    ggplot(
+      aes(
+        x = Gene,
+        y = ClassMolPct,
+        fill = Class
+      )
+    ) +
+
+    geom_col() +
+
+    labs(
+      title =
+        "Lipid-class composition",
+      x = NULL,
+      y =
+        "% of total measured lipid molecules"
+    ) +
+
+    theme(
+      axis.text.x =
+        element_text(
+          angle = 45,
+          hjust = 1
+        )
+    )
+}
+```
+
+For example:
+
+```{R}
+plot_class_composition(
+  c(
+    "CTRL",
+    "OSBPL9",
+    "OSBPL11"
+  )
+)
+```
+
+---
+
+# Part B — Species-level composition
+
+# 12. Median abundance of individual species
+
+```{R}
+species_gene <- species %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class,
+    LipidSpecies,
+    Feature
+  ) %>%
+
+  summarise(
+
+    n =
+      n_distinct(
+        SampleKey
+      ),
+
+    MedianSampleMolPct =
+      median(
+        SampleMolPct,
+        na.rm = TRUE
+      ),
+
+    MedianWithinClassPct =
+      median(
+        WithinClassPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Find the most variable lipid species:
+
+```{R}
+variable_species <- species_gene %>%
+
+  group_by(
+    Feature
+  ) %>%
+
+  summarise(
+
+    Variability =
+      mad(
+        log10(
+          MedianSampleMolPct +
+          1e-6
+        ),
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  slice_max(
+    Variability,
+    n =
+      TOP_N_SPECIES
+  ) %>%
+
+  pull(
+    Feature
+  )
+```
+
+Scale each species across LTPs for visualization:
+
+```{R}
+species_heatmapX <- species_gene %>%
+  filter( Feature %in% variable_species) %>%
+  group_by(Feature) %>%
+   mutate(logPct =log10(MedianSampleMolPct + 1e-6)) %>% 
+   ungroup()
+          
+species_heatmap <- species_heatmapX %>%
+   group_by(Feature) %>%
+   mutate(SpeciesZ_intermediate = median(logPct,na.rm = TRUE) /mad(logPct,na.rm = TRUE)) %>% 
+   ungroup() %>% 
+   group_by(Feature) %>%
+   mutate(SpeciesZ = logPct - SpeciesZ_intermediate)
+
+
+#gotta fix this if logPCT < 0 SpeciesZ should be zero!!!!!!!!!!!!!!!!!!!!!!!!!!
+```
+
+```{R}
+ggplot(
+  species_heatmap,
+  aes(
+    x = Feature,
+    y = Gene,
+    fill = SpeciesZ
+  )
+) +
+
+  geom_tile() +
+
+  scale_fill_gradient2(
+    midpoint = 0,
+    name =
+      "Species\nz-score"
+  ) +
+
+  labs(
+    title =
+      "Most variable lipid species",
+    subtitle =
+      "Based on within-sample molar composition",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 90,
+        hjust = 1,
+        vjust = 0.5,
+        size = 6
+      ),
+
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+---
+
+# Part C — Saturation rearrangement
+
+There are two useful ways of doing this.
+
+### Analysis 1: whole lipid species
+
+Use:
+
+```text
+Total_tail_bend
+```
+
+For example:
+
+* PC(16:0/18:0) → DB0
+* PC(16:0/18:1) → DB1
+* PC(18:1/18:1) → DB2
+* PC(16:0/20:4) → DB4
+
+This works even when individual acyl chains cannot be fully resolved.
+
+### Analysis 2: individual resolved chains
+
+Use:
+
+```text
+Tail_1_bend
+Tail_2_bend
+```
+
+This distinguishes genuinely polyunsaturated chains from two MUFA chains.
+
+I would perform both.
+
+---
+
+# 13. Molecular saturation category
+
+```{R}
+DB_LEVELS <- c(
+  "DB0",
+  "DB1",
+  "DB2",
+  "DB3",
+  "DB4",
+  "DB5",
+  "DB6+"
+)
+
+
+species_sat <- species %>%
+
+  filter(
+    !is.na(
+      TotalDB
+    )
+  ) %>%
+
+  mutate(
+
+    DBbin = case_when(
+
+      TotalDB == 0 ~ "DB0",
+      TotalDB == 1 ~ "DB1",
+      TotalDB == 2 ~ "DB2",
+      TotalDB == 3 ~ "DB3",
+      TotalDB == 4 ~ "DB4",
+      TotalDB == 5 ~ "DB5",
+      TotalDB >= 6 ~ "DB6+"
+    ),
+
+    DBbin =
+      factor(
+        DBbin,
+        levels =
+          DB_LEVELS
+      ),
+
+    DBperTail =
+      if_else(
+        !is.na(
+          ExpectedTails
+        ) &
+        ExpectedTails > 0,
+
+        TotalDB /
+          ExpectedTails,
+
+        NA_real_
+      )
+  )
+```
+
+---
+
+# 14. Saturation distribution within each lipid class
+
+This uses `WithinClassPct`.
+
+Therefore PC always sums to 100%, PE always sums to 100%, etc.
+
+```{R}
+sat_raw <- species_sat %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class,
+    DBbin
+  ) %>%
+
+  summarise(
+
+    BinPct =
+      sum(
+        WithinClassPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Create all missing DB categories explicitly as zero:
+
+```{R}
+sample_class_grid <- species_sat %>%
+
+  distinct(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class
+  ) %>%
+
+  crossing(
+    DBbin =
+      factor(
+        DB_LEVELS,
+        levels =
+          DB_LEVELS
+      )
+  )
+
+
+sat_sample <- sample_class_grid %>%
+
+  left_join(
+
+    sat_raw,
+
+    by = c(
+      "SampleKey",
+      "Gene",
+      "Group",
+      "LBP_Family",
+      "SampleID",
+      "Extraction",
+      "Roster",
+      "Class",
+      "DBbin"
+    )
+  ) %>%
+
+  mutate(
+    BinPct =
+      replace_na(
+        BinPct,
+        0
+      )
+  )
+```
+
+---
+
+# 15. Median saturation distribution per LTP
+
+```{R}
+sat_gene <- sat_sample %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class,
+    DBbin
+  ) %>%
+
+  summarise(
+
+    MedianBinPct =
+      median(
+        BinPct,
+        na.rm = TRUE
+      ),
+
+    IQRBinPct =
+      IQR(
+        BinPct,
+        na.rm = TRUE
+      ),
+
+    n =
+      n_distinct(
+        SampleKey
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  # Median of each bin separately may not add to
+  # exactly 100, so renormalize the median profile.
+  group_by(
+    Gene,
+    Class
+  ) %>%
+
+  mutate(
+    MedianBinPct =
+      100 *
+      MedianBinPct /
+      sum(
+        MedianBinPct
+      )
+  ) %>%
+
+  ungroup()
+```
+
+---
+
+# 16. Plot saturation profile for one lipid class
+
+This is one of the plots I would inspect heavily.
+
+```{R}
+plot_saturation_class <- function(class_name) {
+
+  sat_gene %>%
+
+    filter(
+      Class ==
+        class_name
+    ) %>%
+
+    ggplot(
+      aes(
+        x = DBbin,
+        y = MedianBinPct,
+        group = Gene
+      )
+    ) +
+
+    geom_line(
+      alpha = 0.25
+    ) +
+
+    geom_point(
+      alpha = 0.4
+    ) +
+
+    labs(
+      title =
+        paste(
+          class_name,
+          "molecular unsaturation profiles"
+        ),
+      x =
+        "Total double bonds per lipid species",
+      y =
+        "% of lipid class"
+    )
+}
+```
+
+Example:
+
+```{R}
+plot_saturation_class("PC")
+```
+
+And:
+
+```{R}
+plot_saturation_class("PE")
+plot_saturation_class("SM")
+plot_saturation_class("TAG")
+```
+
+---
+
+# 17. A more useful heatmap
+
+For a large LTP library, I would make:
+
+```text
+PC_DB0
+PC_DB1
+PC_DB2
+PC_DB3
+PC_DB4
+...
+PE_DB0
+PE_DB1
+...
+```
+
+```{R}
+sat_gene_heatmap <- sat_gene %>%
+
+  mutate(
+    SaturationFeature =
+      paste(
+        Class,
+        DBbin,
+        sep = "_"
+      )
+  )
+```
+
+Scale each saturation feature across LTPs:
+
+```{R}
+sat_gene_heatmap <- sat_gene_heatmap %>%
+
+  group_by(
+    SaturationFeature
+  ) %>%
+
+  mutate(
+
+    FeatureZ =
+      #if_else(mad(MedianBinPct,na.rm = TRUE) > 0,
+
+        (MedianBinPct -median(MedianBinPct,na.rm = TRUE)) /
+          mad(MedianBinPct,na.rm = TRUE)#,
+###FIX HERE TOO
+        #0
+      #)
+  ) %>%
+
+  ungroup()
+```
+
+```{R}
+ggplot(
+  sat_gene_heatmap,
+  aes(
+    x = SaturationFeature,
+    y = Gene,
+    fill = FeatureZ
+  )
+) +
+
+  geom_tile() +
+
+  scale_fill_gradient2(
+    midpoint = 0,
+    name =
+      "Relative\nabundance"
+  ) +
+
+  labs(
+    title =
+      "Saturation remodelling across the LTP library",
+    subtitle =
+      "Within-class composition; each saturation feature is scaled across LTPs",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 90,
+        hjust = 1,
+        size = 6
+      ),
+
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+This is probably one of the most useful overview plots for the entire library.
+
+---
+
+# 18. Continuous saturation metrics
+
+Rather than only bins, calculate average unsaturation.
+
+```{R}
+saturation_metrics <- species_sat %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class
+  ) %>%
+
+  summarise(
+
+    MeanTotalDB =
+      weighted.mean(
+        TotalDB,
+        w = nmol,
+        na.rm = TRUE
+      ),
+
+    MeanDBperTail =
+      weighted.mean(
+        DBperTail,
+        w = nmol,
+        na.rm = TRUE
+      ),
+
+    MeanTotalLength =
+      weighted.mean(
+        TotalLength,
+        w = nmol,
+        na.rm = TRUE
+      ),
+
+    FullySaturatedSpeciesPct =
+      100 *
+      sum(
+        nmol[
+          TotalDB == 0
+        ],
+        na.rm = TRUE
+      ) /
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    DB4plusSpeciesPct =
+      100 *
+      sum(
+        nmol[
+          TotalDB >= 4
+        ],
+        na.rm = TRUE
+      ) /
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Median by LTP:
+
+```{R}
+saturation_metrics_gene <-
+  saturation_metrics %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class
+  ) %>%
+
+  summarise(
+
+    MeanDBperTail =
+      median(
+        MeanDBperTail,
+        na.rm = TRUE
+      ),
+
+    MeanTotalDB =
+      median(
+        MeanTotalDB,
+        na.rm = TRUE
+      ),
+
+    SaturatedPct =
+      median(
+        FullySaturatedSpeciesPct,
+        na.rm = TRUE
+      ),
+
+    DB4plusPct =
+      median(
+        DB4plusSpeciesPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Heatmap:
+
+```{R}
+ggplot(
+  saturation_metrics_gene,
+  aes(
+    x = Class,
+    y = Gene,
+    fill = MeanDBperTail
+  )
+) +
+
+  geom_tile() +
+
+  scale_fill_viridis_c(
+    name =
+      "Mean DB\nper tail"
+  ) +
+
+  labs(
+    title =
+      "Average molecular unsaturation",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+---
+
+# Part D — Explicitly detect saturation compensation
+
+This is the part I think is scientifically most interesting.
+
+The logic is:
+
+> **Class abundance stable + internal saturation profile substantially rearranged + replicates agree = candidate compensatory remodelling.**
+
+No lipid value is normalized against the control. The control is simply the reference composition.
+
+---
+
+# 19. Define the reference composition
+
+```{R}
+has_controls <-
+  any(
+    species$Gene %in%
+      CONTROL_GENES
+  )
+
+
+REFERENCE_MODE_USED <-
+  REFERENCE_MODE
+
+
+if (
+  REFERENCE_MODE ==
+  "controls" &&
+  !has_controls
+) {
+
+  warning(
+    "No CONTROL_GENES detected. Using library median instead."
+  )
+
+  REFERENCE_MODE_USED <-
+    "library_median"
+}
+```
+
+Class abundance reference:
+
+```{R}
+if (
+  REFERENCE_MODE_USED ==
+  "controls"
+) {
+
+  reference_class <- class_sample %>%
+
+    filter(
+      Gene %in%
+        CONTROL_GENES
+    ) %>%
+
+    group_by(
+      Class
+    ) %>%
+
+    summarise(
+      RefClassPct =
+        median(
+          ClassMolPct,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    )
+
+} else {
+
+  reference_class <- class_sample %>%
+
+    group_by(
+      Class
+    ) %>%
+
+    summarise(
+      RefClassPct =
+        median(
+          ClassMolPct,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    )
+}
+```
+
+Saturation reference:
+
+```{R}
+if (
+  REFERENCE_MODE_USED ==
+  "controls"
+) {
+
+  reference_sat <- sat_sample %>%
+
+    filter(
+      Gene %in%
+        CONTROL_GENES
+    ) %>%
+
+    group_by(
+      Class,
+      DBbin
+    ) %>%
+
+    summarise(
+      RefBinPct =
+        median(
+          BinPct,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    )
+
+} else {
+
+  reference_sat <- sat_sample %>%
+
+    group_by(
+      Class,
+      DBbin
+    ) %>%
+
+    summarise(
+      RefBinPct =
+        median(
+          BinPct,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    )
+}
+```
+
+Normalize the reference saturation profiles to 100%.
+
+```{R}
+reference_sat <- reference_sat %>%
+
+  group_by(
+    Class
+  ) %>%
+
+  mutate(
+    RefBinPct =
+      100 *
+      RefBinPct /
+      sum(
+        RefBinPct
+      )
+  ) %>%
+
+  ungroup()
+```
+
+---
+
+# 20. Class-abundance change
+
+Again, this is a **difference after sample normalization**, not a normalization to controls.
+
+```{R}
+class_difference <- class_sample %>%
+
+  left_join(
+    reference_class,
+    by = "Class"
+  ) %>%
+
+  mutate(
+
+    ClassDeltaPP =
+      ClassMolPct -
+      RefClassPct,
+
+    AbsClassDeltaPP =
+      abs(
+        ClassDeltaPP
+      )
+  )
+```
+
+---
+
+# 21. Saturation-profile change
+
+```{R}
+sat_difference <- sat_sample %>%
+
+  left_join(
+    reference_sat,
+    by =
+      c(
+        "Class",
+        "DBbin"
+      )
+  ) %>%
+
+  mutate(
+    BinDeltaPP =
+      BinPct -
+      RefBinPct
+  )
+```
+
+---
+
+# 22. Quantify redistribution
+
+A very useful metric here is the **total variation distance**:
+
+[
+R =
+\frac{1}{2}
+\sum_i
+|p_{KO,i} - p_{reference,i}|
+]
+
+Because the profiles sum to 100%, this has an intuitive interpretation.
+
+If:
+
+```text
+RedistributionPct = 20
+```
+
+approximately 20% of that lipid class would have to be redistributed among saturation bins to convert the reference profile into the KO profile.
+
+```{R}
+redistribution_sample <- sat_difference %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Class
+  ) %>%
+
+  summarise(
+
+    RedistributionPct =
+      0.5 *
+      sum(
+        abs(
+          BinDeltaPP
+        ),
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Join class abundance:
+
+```{R}
+redistribution_sample <-
+  redistribution_sample %>%
+
+  left_join(
+
+    class_difference %>%
+
+      select(
+        SampleKey,
+        Class,
+        ClassMolPct,
+        RefClassPct,
+        ClassDeltaPP,
+        AbsClassDeltaPP
+      ),
+
+    by =
+      c(
+        "SampleKey",
+        "Class"
+      )
+  )
+```
+
+---
+
+# 23. Replicate agreement in the *direction* of saturation remodelling
+
+Two samples can both have a high redistribution score while moving in completely opposite directions.
+
+Therefore, I would explicitly compare their vectors:
+
+```text
+DB0 change
+DB1 change
+DB2 change
+DB3 change
+...
+```
+
+using cosine similarity.
+
+```{R}
+cosine_similarity <- function(x, y) {
+
+  denom <-
+    sqrt(
+      sum(
+        x^2
+      )
+    ) *
+    sqrt(
+      sum(
+        y^2
+      )
+    )
+
+  if (
+    !is.finite(denom) ||
+    denom == 0
+  ) {
+    return(
+      NA_real_
+    )
+  }
+
+  sum(
+    x * y
+  ) /
+    denom
+}
+```
+
+```{R}
+median_pairwise_cosine <- function(d) {
+
+  w <- d %>%
+
+    select(
+      SampleKey,
+      DBbin,
+      BinDeltaPP
+    ) %>%
+
+    pivot_wider(
+      names_from =
+        DBbin,
+      values_from =
+        BinDeltaPP,
+      values_fill = 0
+    )
+
+
+  if (
+    nrow(w) < 2
+  )
+    return(
+      NA_real_
+    )
+
+
+  m <-
+    w %>%
+    select(
+      -SampleKey
+    ) %>%
+    as.matrix()
+
+
+  pairs <-
+    combn(
+      seq_len(
+        nrow(m)
+      ),
+      2
+    )
+
+
+  similarities <-
+    apply(
+      pairs,
+      2,
+      function(idx) {
+
+        cosine_similarity(
+          m[
+            idx[1],
+          ],
+          m[
+            idx[2],
+          ]
+        )
+      }
+    )
+
+
+  median(
+    similarities,
+    na.rm = TRUE
+  )
+}
+```
+
+Calculate it:
+
+```{R}
+profile_agreement <- sat_difference %>%
+
+  filter(
+    !Gene %in%
+      CONTROL_GENES
+  ) %>%
+
+  group_by(
+    Gene,
+    Class
+  ) %>%
+
+  group_modify(
+    ~ tibble(
+      ProfileAgreement =
+        median_pairwise_cosine(
+          .x
+        )
+    )
+  ) %>%
+
+  ungroup()
+```
+
+Interpretation:
+
+* near `+1`: replicates undergo the same rearrangement
+* around `0`: unrelated rearrangements
+* negative: replicates move in opposing directions
+
+This is useful for identifying the non-reproducible analyses you mentioned.
+
+---
+
+# 24. Gene-level compensation table
+
+```{R}
+compensation_gene <- redistribution_sample %>%
+
+  filter(
+    !Gene %in%
+      CONTROL_GENES
+  ) %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class
+  ) %>%
+
+  summarise(
+
+    n =
+      n_distinct(
+        SampleKey
+      ),
+
+    MedianClassPct =
+      median(
+        ClassMolPct,
+        na.rm = TRUE
+      ),
+
+    RefClassPct =
+      median(
+        RefClassPct,
+        na.rm = TRUE
+      ),
+
+    MedianClassDeltaPP =
+      median(
+        ClassDeltaPP,
+        na.rm = TRUE
+      ),
+
+    MedianAbsClassDeltaPP =
+      median(
+        AbsClassDeltaPP,
+        na.rm = TRUE
+      ),
+
+    MedianRedistributionPct =
+      median(
+        RedistributionPct,
+        na.rm = TRUE
+      ),
+
+    IQRRedistributionPct =
+      IQR(
+        RedistributionPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  left_join(
+    profile_agreement,
+    by =
+      c(
+        "Gene",
+        "Class"
+      )
+  )
+```
+
+---
+
+# 25. Define whether the class itself is stable
+
+```{R}
+compensation_gene <- compensation_gene %>%
+
+  mutate(
+
+    AllowedClassDeviationPP =
+      pmax(
+        CLASS_STABILITY_MIN_PP,
+        CLASS_STABILITY_RELATIVE *
+          RefClassPct
+      ),
+
+    ClassStabilityRatio =
+      MedianAbsClassDeltaPP /
+      AllowedClassDeviationPP,
+
+    ClassStable =
+      ClassStabilityRatio <= 1,
+
+    StrongRedistribution =
+      MedianRedistributionPct >=
+      MIN_REDISTRIBUTION_PERCENT,
+
+    ReproducibleProfile =
+      !is.na(
+        ProfileAgreement
+      ) &
+      ProfileAgreement >=
+        MIN_PROFILE_AGREEMENT,
+
+    CompensationCandidate =
+      n >=
+        MIN_REPLICATES &
+      ClassStable &
+      StrongRedistribution &
+      ReproducibleProfile
+  )
+```
+
+---
+
+# 26. Rank compensation candidates
+
+I would not treat this score as statistics; it is simply a useful ranking function.
+
+```{R}
+compensation_gene <- compensation_gene %>%
+
+  mutate(
+
+    CompensationScore =
+
+      MedianRedistributionPct *
+
+      pmax(
+        ProfileAgreement,
+        0
+      ) /
+
+      (
+        1 +
+        ClassStabilityRatio
+      )
+  ) %>%
+
+  arrange(
+    desc(
+      CompensationScore
+    )
+  )
+```
+
+Print candidates:
+
+```{R}
+compensation_gene %>%
+
+  filter(
+    CompensationCandidate
+  ) %>%
+
+  select(
+    Gene,
+    LBP_Family,
+    Class,
+    n,
+    MedianClassPct,
+    RefClassPct,
+    MedianClassDeltaPP,
+    MedianRedistributionPct,
+    ProfileAgreement,
+    CompensationScore
+  ) %>%
+
+  print(
+    n = Inf
+  )
+```
+
+---
+
+# 27. Main compensation plot
+
+This may be the single most useful plot in the new analysis.
+
+```{R}
+ggplot(
+  compensation_gene,
+  aes(
+    x =
+      ClassStabilityRatio,
+    y =
+      MedianRedistributionPct
+  )
+) +
+
+  geom_vline(
+    xintercept = 1,
+    linetype = 2
+  ) +
+
+  geom_hline(
+    yintercept =
+      MIN_REDISTRIBUTION_PERCENT,
+    linetype = 2
+  ) +
+
+  geom_point(
+    aes(
+      size =
+        pmax(
+          ProfileAgreement,
+          0
+        )
+    ),
+    alpha = 0.7
+  ) +
+
+  geom_text_repel(
+
+    data =
+      compensation_gene %>%
+      filter(
+        CompensationCandidate
+      ),
+
+    aes(
+      label =
+        paste(
+          Gene,
+          Class,
+          sep = " / "
+        )
+    ),
+
+    max.overlaps = Inf,
+    size = 3
+  ) +
+
+  labs(
+
+    title =
+      "Potential compensatory lipid remodelling",
+
+    subtitle =
+      "Upper-left: class abundance remains stable while saturation composition changes reproducibly",
+
+    x =
+      "Change in class abundance / tolerated change\n(<1 = class relatively stable)",
+
+    y =
+      "% of saturation profile redistributed",
+
+    size =
+      "Replicate\nagreement"
+  )
+```
+
+The quadrant you care most about is:
+
+**upper left**.
+
+That means:
+
+> total abundance of the class barely changed, but its molecular composition changed substantially.
+
+That is exactly the phenotype I would call a candidate **compensatory remodelling mechanism**.
+
+---
+
+# 28. Inspect biological replicates of the strongest candidates
+
+This is important before believing the score.
+
+```{R}
+TOP_COMPENSATION_HITS <- compensation_gene %>%
+
+  filter(
+    CompensationCandidate
+  ) %>%
+
+  slice_max(
+    CompensationScore,
+    n = 30
+  ) %>%
+
+  transmute(
+
+    Gene,
+    Class,
+
+    Hit =
+      paste(
+        Gene,
+        Class,
+        sep = " | "
+      )
+  )
+```
+
+```{R}
+compensation_replicates <-
+  redistribution_sample %>%
+
+  inner_join(
+    TOP_COMPENSATION_HITS,
+    by =
+      c(
+        "Gene",
+        "Class"
+      )
+  )
+```
+
+```{R}
+ggplot(
+  compensation_replicates,
+  aes(
+    x = Hit,
+    y =
+      RedistributionPct
+  )
+) +
+
+  geom_point(
+    position =
+      position_jitter(
+        width = 0.12
+      ),
+    size = 2.5
+  ) +
+
+  geom_text_repel(
+    aes(
+      label =
+        SampleID
+    ),
+    size = 2.5,
+    max.overlaps = Inf
+  ) +
+
+  coord_flip() +
+
+  labs(
+    title =
+      "Replicate-level saturation remodelling",
+    subtitle =
+      "Use this plot to identify single-sample outliers before interpreting a candidate",
+    x = NULL,
+    y =
+      "% saturation profile redistributed"
+  )
+```
+
+If one LTP looks interesting solely because one replicate is enormous, add that sample to:
+
+```{R}
+EXCLUDE_SAMPLE_KEYS
+```
+
+and rerun.
+
+---
+
+# Part E — Which saturation bins drive the compensation?
+
+# 29. Plot the actual DB rearrangement
+
+For the top compensation candidates:
+
+```{R}
+candidate_profiles <- sat_difference %>%
+
+  inner_join(
+    TOP_COMPENSATION_HITS,
+    by =
+      c(
+        "Gene",
+        "Class"
+      )
+  )
+```
+
+Median changes:
+
+```{R}
+candidate_profiles_gene <- candidate_profiles %>%
+
+  group_by(
+    Hit,
+    Gene,
+    Class,
+    DBbin
+  ) %>%
+
+  summarise(
+
+    MedianDeltaPP =
+      median(
+        BinDeltaPP,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+```{R}
+ggplot(
+  candidate_profiles_gene,
+  aes(
+    x = DBbin,
+    y =
+      MedianDeltaPP,
+    group = Hit
+  )
+) +
+
+  geom_hline(
+    yintercept = 0,
+    linetype = 2
+  ) +
+
+  geom_line() +
+
+  geom_point() +
+
+  facet_wrap(
+    ~ Hit,
+    scales = "free_y"
+  ) +
+
+  labs(
+    title =
+      "Direction of saturation compensation",
+    x =
+      "Double bonds per lipid molecule",
+    y =
+      "Change in class composition\n(percentage points)"
+  )
+```
+
+Now you can distinguish patterns such as:
+
+```text
+DB0 ↓
+DB1 ↓
+DB4 ↑
+DB6+ ↑
+```
+
+from:
+
+```text
+DB0 ↑
+DB1 ↑
+DB4 ↓
+```
+
+These are mechanistically very different compensatory responses.
+
+---
+
+# Part F — Resolved individual-chain saturation
+
+This is complementary to `Total_tail_bend`.
+
+For example:
+
+```text
+PC(18:1/18:1)
+```
+
+has `Total_tail_bend = 2`, but contains **two monounsaturated chains**, not one PUFA.
+
+So I would also analyse each resolved chain.
+
+---
+
+# 30. Convert tails to long format
+
+```{R}
+tail1 <- species %>%
+
+  transmute(
+
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class,
+    LipidSpecies,
+    nmol,
+
+    TailPosition = 1,
+
+    Tail =
+      as.character(
+        Tail_1
+      ),
+
+    ChainLength =
+      Tail1Length,
+
+    ChainDB =
+      Tail1DB
+  )
+
+
+tail2 <- species %>%
+
+  transmute(
+
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Extraction,
+    Roster,
+    Class,
+    LipidSpecies,
+    nmol,
+
+    TailPosition = 2,
+
+    Tail =
+      as.character(
+        Tail_2
+      ),
+
+    ChainLength =
+      Tail2Length,
+
+    ChainDB =
+      Tail2DB
+  )
+
+
+chains <- bind_rows(
+  tail1,
+  tail2
+) %>%
+
+  filter(
+    !is.na(
+      ChainDB
+    )
+  ) %>%
+
+  mutate(
+
+    ChainSaturation =
+      case_when(
+
+        ChainDB == 0 ~
+          "Saturated",
+
+        ChainDB == 1 ~
+          "1 DB",
+
+        ChainDB >= 2 ~
+          "2+ DB"
+      ),
+
+    ChainSaturation =
+      factor(
+        ChainSaturation,
+        levels =
+          c(
+            "Saturated",
+            "1 DB",
+            "2+ DB"
+          )
+      )
+  )
+```
+
+I use `"2+ DB"` rather than `"PUFA"` here because some chains may be sphingoid bases or ether-linked chains rather than conventional fatty acids.
+
+---
+
+# 31. Chain-equivalent amounts
+
+One nmol:
+
+```text
+PC(16:0/20:4)
+```
+
+contributes:
+
+```text
+1 nmol saturated chain
+1 nmol 4-DB chain
+```
+
+Therefore:
+
+```{R}
+chain_profile <- chains %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Class,
+    ChainSaturation
+  ) %>%
+
+  summarise(
+
+    ChainNmol =
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  group_by(
+    SampleKey,
+    Class
+  ) %>%
+
+  mutate(
+
+    ChainPct =
+      100 *
+      ChainNmol /
+      sum(
+        ChainNmol,
+        na.rm = TRUE
+      )
+  ) %>%
+
+  ungroup()
+```
+
+---
+
+# 32. Median chain-saturation composition
+
+```{R}
+chain_profile_gene <-
+  chain_profile %>%
+
+  group_by(
+    Gene,
+    LBP_Family,
+    Class,
+    ChainSaturation
+  ) %>%
+
+  summarise(
+
+    MedianChainPct =
+      median(
+        ChainPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Heatmap:
+
+```{R}
+chain_profile_gene %>%
+
+  mutate(
+    Feature =
+      paste(
+        Class,
+        ChainSaturation,
+        sep = " | "
+      )
+  ) %>%
+
+  ggplot(
+    aes(
+      x = Feature,
+      y = Gene,
+      fill =
+        MedianChainPct
+    )
+  ) +
+
+  geom_tile() +
+
+  scale_fill_viridis_c(
+    name =
+      "Chain\n%"
+  ) +
+
+  labs(
+    title =
+      "Resolved-chain saturation",
+    subtitle =
+      "Calculated independently within each lipid class",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme(
+    axis.text.x =
+      element_text(
+        angle = 90,
+        hjust = 1,
+        size = 7
+      ),
+
+    axis.text.y =
+      element_text(
+        size = 6
+      )
+  )
+```
+
+---
+
+# 33. Resolved-chain unsaturation index
+
+```{R}
+chain_metrics <- chains %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    LBP_Family,
+    SampleID,
+    Class
+  ) %>%
+
+  summarise(
+
+    ChainUnsaturationIndex =
+      weighted.mean(
+        ChainDB,
+        w = nmol,
+        na.rm = TRUE
+      ),
+
+    MeanResolvedChainLength =
+      weighted.mean(
+        ChainLength,
+        w = nmol,
+        na.rm = TRUE
+      ),
+
+    PolyunsaturatedChainPct =
+      100 *
+      sum(
+        nmol[
+          ChainDB >= 2
+        ],
+        na.rm = TRUE
+      ) /
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    SaturatedChainPct =
+      100 *
+      sum(
+        nmol[
+          ChainDB == 0
+        ],
+        na.rm = TRUE
+      ) /
+      sum(
+        nmol,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+This is the metric I would use if you specifically want to say:
+
+> this LTP knockout shifts PC toward polyunsaturated acyl chains.
+
+The `TotalDB` analysis alone cannot make that distinction reliably.
+
+---
+
+# Part G — Look explicitly for SFA ↔ MUFA ↔ PUFA compensation
+
+This is another useful way to phrase the biology.
+
+Suppose:
+
+```text
+total PE abundance = unchanged
+
+SFA PE ↓
+MUFA PE ↓
+PUFA PE ↑
+```
+
+That is a very clean remodelling phenotype.
+
+Median chain profile:
+
+```{R}
+chain_compensation <- chain_profile %>%
+
+  group_by(
+    Gene,
+    Class,
+    ChainSaturation
+  ) %>%
+
+  summarise(
+
+    MedianChainPct =
+      median(
+        ChainPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+```
+
+Plot one class:
+
+```{R}
+plot_chain_saturation <- function(class_name) {
+
+  chain_compensation %>%
+
+    filter(
+      Class ==
+        class_name
+    ) %>%
+
+    ggplot(
+      aes(
+        x =
+          ChainSaturation,
+        y =
+          MedianChainPct,
+        group = Gene
+      )
+    ) +
+
+    geom_line(
+      alpha = 0.25
+    ) +
+
+    geom_point(
+      alpha = 0.4
+    ) +
+
+    labs(
+      title =
+        paste(
+          class_name,
+          "resolved-chain saturation"
+        ),
+      x = NULL,
+      y =
+        "% of resolved chains"
+    )
+}
+```
+
+Example:
+
+```{R}
+plot_chain_saturation("PC")
+plot_chain_saturation("PE")
+```
+
+---
+
+# 34. Export the main results
+
+```{R}
+dir.create(
+  "results_compositional",
+  showWarnings = FALSE
+)
+
+
+write_csv(
+  species,
+  "results_compositional/species_normalized_within_sample.csv"
+)
+
+
+write_csv(
+  class_gene,
+  "results_compositional/lipid_class_composition.csv"
+)
+
+
+write_csv(
+  sat_gene,
+  "results_compositional/molecular_saturation_profiles.csv"
+)
+
+
+write_csv(
+  saturation_metrics,
+  "results_compositional/saturation_metrics_per_sample.csv"
+)
+
+
+write_csv(
+  compensation_gene,
+  "results_compositional/compensation_candidates.csv"
+)
+
+
+write_csv(
+  chain_profile,
+  "results_compositional/resolved_chain_saturation.csv"
+)
+
+
+write_csv(
+  chain_metrics,
+  "results_compositional/resolved_chain_metrics.csv"
+)
+```
+
+And:
+
+```{R}
+sessionInfo()
+```
+
+## How I would interpret this analysis
+
+The most important distinction is between **abundance** and **remodelling**.
+
+Imagine these two phenotypes:
+
+| KO    |   PC total | Saturation redistribution |
+| ----- | ---------: | ------------------------: |
+| LTP-A |       −40% |                        5% |
+| LTP-B | ~unchanged |                       28% |
+
+`LTP-A` mainly affects **how much PC exists**.
+
+`LTP-B` is potentially much more interesting from a compensation perspective: the cell maintains PC abundance, but substantially changes **what kind of PC it makes**.
+
+I would therefore prioritize the output from `compensation_gene`, especially LTP–class combinations with:
+
+* `ClassStabilityRatio < 1`
+* high `MedianRedistributionPct`
+* `ProfileAgreement` approaching 1
+* the same phenotype visible in all biological replicates
+* support from the resolved-chain analysis.
+
+The resolved-chain analysis also lets you distinguish a very important case:
+
+**PC(18:1/18:1) → PC(16:0/20:2)**
+
+Both molecules contain two total double bonds, so a simple `Total_tail_bend` analysis sees essentially no difference. But the chain analysis detects the change from **two MUFA chains to one saturated + one PUFA chain**. That kind of hidden rearrangement may be particularly relevant for LTP knockouts because it could preserve average membrane unsaturation while profoundly changing lipid packing, oxidation sensitivity, and downstream metabolism.
+
+For your library, I would probably use the **class-composition heatmap + saturation-feature heatmap + compensation plot** as the three main screen-level figures, then drill into individual PC/PE/SM/TAG profiles for the strongest hits.
