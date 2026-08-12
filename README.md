@@ -7,6 +7,8 @@
 > For better analysis of the same data by ChatGPT check: 
 > [Analysis1.md](https://github.com/birolcabukusta/ltp_library_analysis/blob/main/AI_driven_analysis/Analysis1.md) and
 > [Analysis2.md](https://github.com/birolcabukusta/ltp_library_analysis/blob/main/AI_driven_analysis/Analysis2.md).
+> All the data is available in the "data/" directory.
+> Contact Birol Cabukusta @ Maastricht University for requests.
 > 
 > If you use this work, please cite the publication above. See the [Citation](#citation) section below for citation details.
 
