@@ -53,17 +53,14 @@ library(tidyverse)
 
 ``` r
 library(ggrepel)
+library(ggthemes)
 
-knitr::opts_chunk$set(
-  echo = F,
-  warning = FALSE,
-  message = FALSE,
-  fig.width = 10,
-  fig.height = 7
+knitr::opts_chunk$set(echo = F,warning = FALSE,
+  message = FALSE,fig.width = 10,fig.height = 7
 )
 
 theme_set(
-  theme_bw(base_size = 11) +
+  theme_base(base_size = 10) +
     theme(
       panel.grid.minor = element_blank(),
       strip.background = element_rect(fill = "grey95")
@@ -116,16 +113,13 @@ EXCLUDE_SAMPLE_KEYS <- c(
 # Number of biological replicates we ideally want
 MIN_REPLICATES <- 2
 
-
 # Replicate correlation below this is worth inspecting.
 MIN_REPLICATE_CORRELATION <- 0.70
 
 
 # Compensation thresholds.
-#
 # A class is considered "stable" when its abundance differs
 # by less than:
-#
 # max(1 percentage point, 20% of its reference abundance)
 
 CLASS_STABILITY_MIN_PP <- 1
@@ -137,7 +131,6 @@ CLASS_STABILITY_RELATIVE <- 0.20
 
 MIN_REDISTRIBUTION_PERCENT <- 10
 
-
 # Replicate saturation profiles should point in approximately
 # the same direction.
 
@@ -145,7 +138,7 @@ MIN_PROFILE_AGREEMENT <- 0.50
 
 
 # Heatmap sizes
-TOP_N_SPECIES <- 75
+TOP_N_SPECIES <- 50
 ```
 
 ------------------------------------------------------------------------
@@ -449,7 +442,7 @@ Sample totals:
 
 Plot:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
 This is where I would identify the obviously non-reproducible samples.
 
@@ -490,13 +483,18 @@ No control normalization is involved.
 
 # 8. Median class composition per LTP
 
+    ## # A tibble: 1 × 1
+    ##   `sum(n)`
+    ##      <int>
+    ## 1      276
+
 ------------------------------------------------------------------------
 
 # 9. Absolute class-composition heatmap
 
 I would show the actual percentages first.
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/Absolute%20class-composition%20heatmap-1.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -509,7 +507,7 @@ For detecting unusual LTP phenotypes, make another heatmap that scales
 
 This is visualization only. It is not control normalization.
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-16-2.png)<!-- -->
 
 This should make things such as the ORP9/ORP11 SM phenotype much easier
 to see than the absolute mol-% plot.
@@ -522,7 +520,7 @@ For follow-up figures:
 
 For example:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/plot%20for%20shalom-1.png)<!-- -->![](Analysis2_files/figure-gfm/plot%20for%20shalom-2.png)<!-- -->![](Analysis2_files/figure-gfm/plot%20for%20shalom-3.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -534,7 +532,7 @@ Find the most variable lipid species:
 
 Scale each species across LTPs for visualization:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -597,13 +595,15 @@ Create all missing DB categories explicitly as zero:
 
 This is one of the plots I would inspect heavily.
 
+![](Analysis2_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+
 Example:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-31-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
 
 And:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-32-2.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-32-3.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-2.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-3.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-4.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-5.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-6.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-28-7.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -625,7 +625,7 @@ PE_DB1
 
 Scale each saturation feature across LTPs:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-31-1.png)<!-- -->
 
 This is probably one of the most useful overview plots for the entire
 library.
@@ -640,7 +640,7 @@ Median by LTP:
 
 Heatmap:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-38-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-34-1.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -824,7 +824,7 @@ Print candidates:
 
 This may be the single most useful plot in the new analysis.
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-54-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-50-1.png)<!-- -->
 
 The quadrant you care most about is:
 
@@ -844,7 +844,7 @@ remodelling mechanism**.
 
 This is important before believing the score.
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-57-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-53-1.png)<!-- -->
 
 If one LTP looks interesting solely because one replicate is enormous,
 add that sample to:
@@ -863,7 +863,7 @@ For the top compensation candidates:
 
 Median changes:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-61-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-57-1.png)<!-- -->
 
 Now you can distinguish patterns such as:
 
@@ -934,7 +934,7 @@ Therefore:
 
 Heatmap:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-65-1.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-61-1.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -970,7 +970,7 @@ Plot one class:
 
 Example:
 
-![](Analysis2_files/figure-gfm/unnamed-chunk-69-1.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-69-2.png)<!-- -->
+![](Analysis2_files/figure-gfm/unnamed-chunk-65-1.png)<!-- -->![](Analysis2_files/figure-gfm/unnamed-chunk-65-2.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -996,9 +996,10 @@ And:
     ## [1] stats     graphics  grDevices utils     datasets  methods   base     
     ## 
     ## other attached packages:
-    ##  [1] ggrepel_0.9.5   lubridate_1.9.4 forcats_1.0.0   stringr_1.5.1  
-    ##  [5] dplyr_1.1.4     purrr_1.0.4     readr_2.2.0     tidyr_1.3.1    
-    ##  [9] tibble_3.2.1    ggplot2_4.0.2   tidyverse_2.0.0
+    ##  [1] ggsignif_0.6.4   ggbeeswarm_0.7.2 ggthemes_5.1.0   ggrepel_0.9.5   
+    ##  [5] lubridate_1.9.4  forcats_1.0.0    stringr_1.5.1    dplyr_1.1.4     
+    ##  [9] purrr_1.0.4      readr_2.2.0      tidyr_1.3.1      tibble_3.2.1    
+    ## [13] ggplot2_4.0.2    tidyverse_2.0.0 
     ## 
     ## loaded via a namespace (and not attached):
     ##  [1] utf8_1.2.4         generics_0.1.3     stringi_1.8.4      hms_1.1.3         
@@ -1007,11 +1008,12 @@ And:
     ## [13] viridisLite_0.4.2  scales_1.4.0       cli_3.6.2          rlang_1.1.4       
     ## [17] crayon_1.5.2       bit64_4.0.5        withr_3.0.0        yaml_2.3.8        
     ## [21] tools_4.4.0        parallel_4.4.0     tzdb_0.4.0         vctrs_0.6.5       
-    ## [25] R6_2.5.1           lifecycle_1.0.4    bit_4.0.5          vroom_1.7.0       
-    ## [29] pkgconfig_2.0.3    pillar_1.9.0       gtable_0.3.6       glue_1.7.0        
-    ## [33] Rcpp_1.0.12        xfun_0.51          tidyselect_1.2.1   rstudioapi_0.18.0 
-    ## [37] knitr_1.49         farver_2.1.2       htmltools_0.5.8.1  rmarkdown_2.27    
-    ## [41] labeling_0.4.3     compiler_4.4.0     S7_0.2.1
+    ## [25] R6_2.5.1           lifecycle_1.0.4    bit_4.0.5          vipor_0.4.7       
+    ## [29] vroom_1.7.0        beeswarm_0.4.0     pkgconfig_2.0.3    pillar_1.9.0      
+    ## [33] gtable_0.3.6       glue_1.7.0         Rcpp_1.0.12        xfun_0.51         
+    ## [37] tidyselect_1.2.1   rstudioapi_0.18.0  knitr_1.49         farver_2.1.2      
+    ## [41] htmltools_0.5.8.1  rmarkdown_2.27     labeling_0.4.3     compiler_4.4.0    
+    ## [45] S7_0.2.1
 
 ## How I would interpret this analysis
 

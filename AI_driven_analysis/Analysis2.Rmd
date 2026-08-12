@@ -29,17 +29,14 @@ Below is an R Markdown-ready workflow.
 
 library(tidyverse)
 library(ggrepel)
+library(ggthemes)
 
-knitr::opts_chunk$set(
-  echo = F,
-  warning = FALSE,
-  message = FALSE,
-  fig.width = 10,
-  fig.height = 7
+knitr::opts_chunk$set(echo = F,warning = FALSE,
+  message = FALSE,fig.width = 10,fig.height = 7
 )
 
 theme_set(
-  theme_bw(base_size = 11) +
+  theme_base(base_size = 10) +
     theme(
       panel.grid.minor = element_blank(),
       strip.background = element_rect(fill = "grey95")
@@ -92,16 +89,13 @@ EXCLUDE_SAMPLE_KEYS <- c(
 # Number of biological replicates we ideally want
 MIN_REPLICATES <- 2
 
-
 # Replicate correlation below this is worth inspecting.
 MIN_REPLICATE_CORRELATION <- 0.70
 
 
 # Compensation thresholds.
-#
 # A class is considered "stable" when its abundance differs
 # by less than:
-#
 # max(1 percentage point, 20% of its reference abundance)
 
 CLASS_STABILITY_MIN_PP <- 1
@@ -113,7 +107,6 @@ CLASS_STABILITY_RELATIVE <- 0.20
 
 MIN_REDISTRIBUTION_PERCENT <- 10
 
-
 # Replicate saturation profiles should point in approximately
 # the same direction.
 
@@ -121,7 +114,7 @@ MIN_PROFILE_AGREEMENT <- 0.50
 
 
 # Heatmap sizes
-TOP_N_SPECIES <- 75
+TOP_N_SPECIES <- 50
 ```
 
 ---
@@ -138,8 +131,7 @@ acyls1 <- acyls1 %>%
    mutate(X = paste0(Class, "(",Tails,")")) 
 
 
-acyls_raw <- acyls1 %>%
-   
+acyls_raw <- acyls1[-1] %>%
    mutate(
       Gene = as.character(Target.Gene.Symbol), 
       LipidSpecies = as.character(X),
@@ -166,7 +158,7 @@ acyls_raw <- acyls1 %>%
 Check the samples:
 
 ```{R}
-acyls_raw %>%
+acyls_raw %>% 
   distinct(
     Gene, SampleID, Extraction, Roster, SampleKey
   ) %>%
@@ -182,16 +174,39 @@ This is now the core of the analysis.
 
 ```{R}
 make_species_table <- function(dat) {
+
   dat %>%
+
     group_by(
-      SampleKey,Gene,Group,LBP_Family,SampleID,Extraction,Roster,
-      Type2,Class,LipidSpecies,Feature,Tails,Tail_1,Tail1Length,
-      Tail1DB,Tail_2,Tail2Length,Tail2DB,
-      TotalLength,TotalDB,ExpectedTails
+      SampleKey,
+      Gene,
+      Group,
+      LBP_Family,
+      SampleID,
+      Extraction,
+      Roster,
+      Type2,
+      Class,
+      LipidSpecies,
+      Feature,
+      Tails,
+      Tail_1,
+      Tail1Length,
+      Tail1DB,
+      Tail_2,
+      Tail2Length,
+      Tail2DB,
+      TotalLength,
+      TotalDB,
+      ExpectedTails
     ) %>%
 
     summarise(
-      nmol =sum(nmol,na.rm = TRUE),
+      nmol =
+        sum(
+          nmol,
+          na.rm = TRUE
+        ),
       .groups = "drop"
     ) %>%
 
@@ -263,17 +278,18 @@ species_initial <-
   make_species_table(
     acyls_raw
   )
+
+
+
 ```
 
 Check that each sample sums to 100%:
 
 ```{R}
 species_initial %>%
-
   group_by(
     SampleKey
   ) %>%
-
   summarise(
     TotalPct =
       sum(
@@ -281,7 +297,6 @@ species_initial %>%
       ),
     .groups = "drop"
   ) %>%
-
   summary()
 ```
 
@@ -299,15 +314,12 @@ Because the analysis is compositional, I would assess replicate similarity using
 # ============================================================
 
 clr_transform <- function(x) {
-
   x <- as.numeric(x)
-
   positive <-
     x[
       is.finite(x) &
       x > 0
     ]
-
   if (length(positive) == 0) {
     return(
       rep(
@@ -319,7 +331,6 @@ clr_transform <- function(x) {
 
   pseudo <-
     min(positive) / 2
-
   lx <-
     log(
       x +
@@ -332,17 +343,14 @@ clr_transform <- function(x) {
 
 
 safe_cor <- function(x, y) {
-
   ok <-
-    is.finite(x) &
-    is.finite(y)
+    is.finite(x) & is.finite(y)
 
   if (sum(ok) < 5)
     return(NA_real_)
 
   if (
-    sd(x[ok]) == 0 ||
-    sd(y[ok]) == 0
+    sd(x[ok]) == 0 || sd(y[ok]) == 0
   )
     return(NA_real_)
 
@@ -358,7 +366,6 @@ Create sample × species matrix:
 
 ```{R}
 qc_wide <- species_initial %>%
-
   group_by(
     SampleKey,
     Feature
@@ -393,8 +400,7 @@ qc_matrix <-
   as.matrix()
 
 
-rownames(qc_matrix) <-
-  qc_ids
+rownames(qc_matrix) <- qc_ids
 
 
 qc_clr <-
@@ -411,7 +417,6 @@ Sample metadata:
 
 ```{R}
 sample_metadata <- species_initial %>%
-
   distinct(
     SampleKey,
     Gene,
@@ -431,9 +436,7 @@ For every replicate, compare its lipidome with the median of the other replicate
 
 ```{R}
 replicate_correlations <-
-
   map_dfr(
-
     unique(
       sample_metadata$Gene
     ),
@@ -509,7 +512,7 @@ replicate_correlations <-
 
 Sample totals:
 
-```{R}
+```{R Sample totals}
 qc_summary <- species_initial %>%
 
   group_by(
@@ -555,61 +558,18 @@ Plot:
 ```{R}
 ggplot(
   qc_summary,
-  aes(
-    x = Gene,
-    y =
-      ReplicateConsensusR
-  )
-) +
-
-  geom_hline(
-    yintercept =
-      MIN_REPLICATE_CORRELATION,
-    linetype = 2
-  ) +
-
-  geom_point(
-    aes(
-      shape =
-        BadReplicate
-    ),
-    position =
-      position_jitter(
-        width = 0.15
-      ),
-    size = 2.5
-  ) +
-
-  geom_text_repel(
-
-    data =
-      qc_summary %>%
-      filter(
-        BadReplicate
-      ),
-
-    aes(
-      label =
-        paste0(
-          Gene,
-          " / ",
-          SampleID
-        )
-    ),
-
-    size = 3,
-    max.overlaps = Inf
-  ) +
-
-  coord_flip() +
-
-  labs(
-    title =
-      "Reproducibility of within-sample-normalized lipidomes",
-    x = NULL,
-    y =
-      "Correlation with other replicates"
-  )
+  aes(x = Gene, y = ReplicateConsensusR)) +
+   geom_hline(yintercept = MIN_REPLICATE_CORRELATION, linetype = 2 ) +
+  geom_point(aes(shape =BadReplicate),
+    position =position_jitter(width = 0.15), size = 2.5) +
+  geom_text_repel(data =
+                     qc_summary %>%
+                     filter(BadReplicate),
+                  aes(label =paste0(Gene," / ",SampleID)),
+                  size = 3,max.overlaps = Inf) +
+   coord_flip() +
+   labs(title ="Reproducibility of within-sample-normalized lipidomes",
+        x = NULL,y ="Correlation with other replicates")
 ```
 
 This is where I would identify the obviously non-reproducible samples.
@@ -618,25 +578,10 @@ Print their exact keys:
 
 ```{R}
 qc_summary %>%
-
-  filter(
-    BadReplicate
-  ) %>%
-
-  select(
-    Gene,
-    SampleID,
-    SampleKey,
-    ReplicateConsensusR
-  ) %>%
-
-  arrange(
-    ReplicateConsensusR
-  ) %>%
-
-  print(
-    n = Inf
-  )
+   filter(BadReplicate) %>%
+   select(Gene,SampleID,SampleKey,ReplicateConsensusR) %>%
+   arrange(ReplicateConsensusR) %>%
+   print(n = Inf)
 ```
 
 Then put the problematic ones into `EXCLUDE_SAMPLE_KEYS` at the top.
@@ -655,19 +600,19 @@ EXCLUDE_SAMPLE_KEYS = c(
 )
 
 acyls_clean <- acyls_raw %>%
-
   filter(
-    !Gene %in%
-      EXCLUDE_GENES,
-    !SampleKey %in%
-      EXCLUDE_SAMPLE_KEYS
+    !Gene %in% EXCLUDE_GENES,
+    !SampleKey %in% EXCLUDE_SAMPLE_KEYS
   )
-
 
 species <-
   make_species_table(
     acyls_clean
   )
+
+
+#anti_join(acyls_raw, acyls_clean) %>% View
+
 ```
 
 ---
@@ -678,7 +623,6 @@ species <-
 
 ```{R}
 class_sample <- species %>%
-
   group_by(
     SampleKey,
     Gene,
@@ -727,7 +671,6 @@ No control normalization is involved.
 
 ```{R}
 class_gene <- class_sample %>%
-
   group_by(
     Gene,
     LBP_Family,
@@ -761,6 +704,15 @@ class_gene <- class_sample %>%
 
     .groups = "drop"
   )
+
+
+
+class_gene %>% 
+   select(1,4) %>% 
+   unique() %>% 
+   summarise(sum(n)) # of samples!
+
+
 ```
 
 ---
@@ -769,9 +721,8 @@ class_gene <- class_sample %>%
 
 I would show the actual percentages first.
 
-```{R}
+```{R Absolute class-composition heatmap}
 gene_order <- class_gene %>%
-
   distinct(
     Gene,
     LBP_Family
@@ -787,8 +738,7 @@ gene_order <- class_gene %>%
   )
 
 
-class_gene_plot <- class_gene %>%
-
+class_gene_plot <- class_gene %>% 
   mutate(
     Gene =
       factor(
@@ -799,38 +749,21 @@ class_gene_plot <- class_gene %>%
   )
 
 
-ggplot(
-  class_gene_plot,
-  aes(
-    x = Class,
-    y = Gene,
-    fill =
-      MedianClassPct
-  )
-) +
-
-  geom_tile() +
-
-  scale_fill_viridis_c(
-    name =
-      "Median\nmol %"
-  ) +
-
-  labs(
-    title =
-      "Lipid-class composition of the LTP knockout library",
-    subtitle =
-      "Each sample is normalized internally to 100%",
-    x = NULL,
-    y = NULL
-  ) +
-
-  theme(
-    axis.text.y =
-      element_text(
-        size = 6
-      )
-  )
+class_gene_plot %>% 
+   ggplot(aes(
+      x = Class,
+      y = Gene,
+      fill =MedianClassPct)) +
+   geom_tile() +
+   scale_fill_viridis_c(name ="Median\nmol %") +
+   labs(
+      title =
+         "Lipid-class composition of the LTP knockout library",
+      subtitle =
+         "Each sample is normalized internally to 100%",
+      x = NULL,y = NULL) +
+   theme(axis.text.y =element_text(size = 6)
+   )
 ```
 
 ---
@@ -843,9 +776,8 @@ For detecting unusual LTP phenotypes, make another heatmap that scales **each cl
 
 This is visualization only. It is not control normalization.
 
-```{R}
+```{R Relative class abnormalities across the library}
 class_gene_z <- class_gene %>%
-
   group_by(
     Class
   ) %>%
@@ -882,36 +814,38 @@ class_gene_z <- class_gene %>%
 ```{R}
 ggplot(
   class_gene_z,
-  aes(
-    x = Class,
-    y = Gene,
-    fill = ClassZ
-  )
+  aes(x = Class,y = Gene,fill = ClassZ)
 ) +
-
   geom_tile() +
-
-  scale_fill_gradient2(
-    midpoint = 0,
-    name =
-      "Robust\nz-score"
-  ) +
-
+  scale_fill_gradient2(midpoint = 0,name ="Robust\nz-score") +
   labs(
     title =
       "Relative lipid-class phenotypes",
     subtitle =
       "Values are scaled within each lipid class across the complete library",
-    x = NULL,
-    y = NULL
-  ) +
+    x = NULL,y = NULL) +
+  theme(axis.text.y =element_text(size = 6))
 
-  theme(
-    axis.text.y =
-      element_text(
-        size = 6
-      )
-  )
+library(ggbeeswarm)
+#plot by BC
+ggplot(
+  class_gene_z,
+  aes(x = Class ,y = ClassZ)) +
+  geom_quasirandom(shape = 21, aes(fill = ClassZ)) +
+  scale_fill_gradient2(midpoint = 0,name ="Robust\nz-score") +
+  labs(
+    title =
+      "Relative lipid-class phenotypes",
+    subtitle =
+      "Values are scaled within each lipid class across the complete library",
+    x = NULL,y = NULL) +
+  theme(axis.text.y =element_text(size = 6)) +
+   geom_text_repel(data = 
+                      class_gene_z %>% 
+                      filter(abs(ClassZ) > 3), 
+                   aes(label = Gene, color = Class))
+
+
 ```
 
 This should make things such as the ORP9/ORP11 SM phenotype much easier to see than the absolute mol-% plot.
@@ -924,9 +858,7 @@ For follow-up figures:
 
 ```{R}
 plot_class_composition <- function(genes) {
-
   class_sample %>%
-
     filter(
       Gene %in% genes
     ) %>%
@@ -975,14 +907,93 @@ plot_class_composition <- function(genes) {
 
 For example:
 
-```{R}
+```{R plot for shalom}
 plot_class_composition(
   c(
     "CTRL",
     "OSBPL9",
+    "OSBPL10",
     "OSBPL11"
   )
 )
+
+#bc plot
+selection <- c(
+    "CTRL",
+    "OSBPL9",
+    "OSBPL10",
+    "OSBPL11"
+  )
+
+selection2 <- c(
+    "NT",
+    "OSBPL9",
+    "OSBPL10",
+    "OSBPL11"
+  )
+
+library(ggsignif)
+
+rbind(class_sample %>% 
+         filter(Gene %in% selection),
+      class_sample %>% 
+         filter(Group == "CTRL")) %>% 
+   filter(Class %in% c("SM",'CER','HCER')) %>% 
+   #filter(Class %in% c("SM",'CER','HCER')) %>% 
+   mutate(Gene = str_replace(Gene, pattern = 'NonTarget_.',replacement = 'NT')) %>%
+   ggplot(aes(Gene, ClassMolPct)) +
+   #facet_grid(Class ~., scales = 'free_y') +
+   facet_grid(Class ~., scales = 'free_y') +
+   geom_boxplot() +
+   geom_quasirandom() +
+   scale_y_continuous(limits = c(0,NA), breaks = c(0:12)) +
+   geom_signif(comparisons = 
+      list(c(1,2),c(1,3), c(1,4)), 
+      y_position = c(0.1, 0.2,0.3), 
+      #margin_top = c(0.1,0.2,0.3),
+      test  = t.test, test.args = c(var.equal = T)
+      ) +
+   scale_x_discrete(limits = selection2)
+
+selectedSamples1 <- rbind(class_sample %>% 
+         filter(Gene %in% selection),
+      class_sample %>% 
+         filter(Group == "CTRL")) %>% 
+   filter(Class %in% c("SM",'CER','HCER')) %>% 
+   #filter(Class %in% c("SM",'CER','HCER')) %>% 
+   mutate(Gene = str_replace(Gene, pattern = 'NonTarget_.',replacement = 'NT')) 
+
+#plot1 <-
+selectedSamples1 %>%
+   filter(Class %in% c("SM")) %>% 
+   ggplot(aes(Gene, ClassMolPct)) +
+   #facet_grid(Class ~., scales = 'free_y') +
+   geom_quasirandom() +
+   stat_summary(fun = mean, geom = 'crossbar', color = '#CC0000', width = 0.5) +
+   stat_summary(fun.ymax = function(x) {mean(x)+sd(x)},
+                fun.ymin = function(x) {mean(x)-sd(x)},
+                , geom = 'errorbar', color = '#CC0000', width = 0.25) +
+   scale_y_continuous(limits = c(0,10))  +
+   theme_base() +
+   geom_signif(comparisons = 
+      list(c(1,2),c(1,3), c(1,4)), 
+      #y_position = c(0.1, 0.2,0.3), 
+      margin_top = c(0.1, 0.2,0.3), 
+      tip_length = 0,
+      test  = t.test, test.args = c(var.equal = T)
+      ) +
+   labs(title = 'Sphingomyelin') +
+   scale_x_discrete(limits = selection2, 
+                    labels = c('Control','ORP9','ORP10','ORP11')) +
+   xlab('') + 
+   ylab('Percentage of lipidome')
+
+# selectedSamples1 %>%
+#    filter(Class %in% c("SM",'CER','HCER')) %>% 
+#    write_csv('RawForShalom.csv')
+
+
+   
 ```
 
 ---
@@ -993,7 +1004,6 @@ plot_class_composition(
 
 ```{R}
 species_gene <- species %>%
-
   group_by(
     Gene,
     LBP_Family,
@@ -1029,41 +1039,21 @@ Find the most variable lipid species:
 
 ```{R}
 variable_species <- species_gene %>%
-
-  group_by(
-    Feature
-  ) %>%
-
+  group_by(Feature) %>%
   summarise(
-
     Variability =
-      mad(
-        log10(
-          MedianSampleMolPct +
-          1e-6
-        ),
-        na.rm = TRUE
-      ),
-
+      mad(log10(MedianSampleMolPct +1e-6),na.rm = TRUE),
     .groups = "drop"
   ) %>%
-
-  slice_max(
-    Variability,
-    n =
-      TOP_N_SPECIES
-  ) %>%
-
-  pull(
-    Feature
-  )
+  slice_max(Variability,n =TOP_N_SPECIES) %>%
+  pull(Feature)
 ```
 
 Scale each species across LTPs for visualization:
 
-```{R}
+```{R NOT DONE}
 species_heatmapX <- species_gene %>%
-  filter( Feature %in% variable_species) %>%
+  filter(Feature %in% variable_species) %>%
   group_by(Feature) %>%
    mutate(logPct =log10(MedianSampleMolPct + 1e-6)) %>% 
    ungroup()
@@ -1082,30 +1072,17 @@ species_heatmap <- species_heatmapX %>%
 ```{R}
 ggplot(
   species_heatmap,
-  aes(
-    x = Feature,
-    y = Gene,
-    fill = SpeciesZ
-  )
-) +
-
+  aes(x = Feature,y = Gene,fill = SpeciesZ)) +
   geom_tile() +
-
   scale_fill_gradient2(
     midpoint = 0,
     name =
       "Species\nz-score"
   ) +
-
   labs(
-    title =
-      "Most variable lipid species",
-    subtitle =
-      "Based on within-sample molar composition",
-    x = NULL,
-    y = NULL
-  ) +
-
+    title = "Most variable lipid species",
+    subtitle = "Based on within-sample molar composition",
+    x = NULL,y = NULL) +
   theme(
     axis.text.x =
       element_text(
@@ -1175,17 +1152,13 @@ DB_LEVELS <- c(
 
 
 species_sat <- species %>%
-
   filter(
     !is.na(
       TotalDB
     )
   ) %>%
-
   mutate(
-
     DBbin = case_when(
-
       TotalDB == 0 ~ "DB0",
       TotalDB == 1 ~ "DB1",
       TotalDB == 2 ~ "DB2",
@@ -1194,27 +1167,12 @@ species_sat <- species %>%
       TotalDB == 5 ~ "DB5",
       TotalDB >= 6 ~ "DB6+"
     ),
-
     DBbin =
-      factor(
-        DBbin,
-        levels =
-          DB_LEVELS
-      ),
-
+      factor(DBbin,levels =DB_LEVELS),
     DBperTail =
-      if_else(
-        !is.na(
-          ExpectedTails
-        ) &
-        ExpectedTails > 0,
-
-        TotalDB /
-          ExpectedTails,
-
-        NA_real_
-      )
-  )
+      if_else(!is.na(ExpectedTails) & ExpectedTails > 0,
+        TotalDB / ExpectedTails, NA_real_)
+    )
 ```
 
 ---
@@ -1279,11 +1237,8 @@ sample_class_grid <- species_sat %>%
 
 
 sat_sample <- sample_class_grid %>%
-
   left_join(
-
     sat_raw,
-
     by = c(
       "SampleKey",
       "Gene",
@@ -1296,14 +1251,8 @@ sat_sample <- sample_class_grid %>%
       "DBbin"
     )
   ) %>%
-
   mutate(
-    BinPct =
-      replace_na(
-        BinPct,
-        0
-      )
-  )
+    BinPct = replace_na(BinPct,0))
 ```
 
 ---
@@ -1368,15 +1317,29 @@ sat_gene <- sat_sample %>%
 This is one of the plots I would inspect heavily.
 
 ```{R}
+#make it with facet grid
+
+sat_gene %>% 
+   #filter(Class ==class_name) %>%
+   ggplot(aes(x = DBbin,y = MedianBinPct,group = Gene)) +
+   facet_wrap(Class~., ncol = 4) +
+   geom_line(alpha = 0.25) +
+   geom_point(alpha = 0.4) +
+   
+   labs(title ="Molecular unsaturation profiles",
+      x ="Total double bonds per lipid species",
+      y ="% of lipid class")
+
+
+```
+
+```{R}
 plot_saturation_class <- function(class_name) {
-
   sat_gene %>%
-
     filter(
       Class ==
         class_name
     ) %>%
-
     ggplot(
       aes(
         x = DBbin,
@@ -1419,6 +1382,26 @@ And:
 plot_saturation_class("PE")
 plot_saturation_class("SM")
 plot_saturation_class("TAG")
+plot_saturation_class("CE")
+plot_saturation_class("DAG")
+plot_saturation_class("CER")
+
+#devi = function(x) {0.6745*(x-median(x)) / mad(x) }
+
+sat_gene %>% 
+   group_by(Class, DBbin) %>% 
+   mutate(NewZetDevi = 0.6745*(MedianBinPct-median(MedianBinPct)) / mad(MedianBinPct)) %>% ungroup %>% 
+   filter(Class =="SM") %>%
+   ggplot(aes(x = DBbin,y = Gene)) +
+   geom_tile(aes(fill = NewZetDevi)) +
+   #scale_fill_viridis_c() +
+   scale_fill_gradient2(midpoint = 0,name ="Relative\nabundance") +
+   labs(title ="DAG molecular unsaturation profiles",
+      x ="Total double bonds per lipid species",
+      y ="% of lipid class")
+
+
+
 ```
 
 ---
@@ -1455,25 +1438,23 @@ sat_gene_heatmap <- sat_gene %>%
 Scale each saturation feature across LTPs:
 
 ```{R}
-sat_gene_heatmap <- sat_gene_heatmap %>%
-
+sat_gene_heatmap <- 
+   sat_gene_heatmap %>% 
   group_by(
     SaturationFeature
   ) %>%
 
   mutate(
-
-    FeatureZ =
-      #if_else(mad(MedianBinPct,na.rm = TRUE) > 0,
-
-        (MedianBinPct -median(MedianBinPct,na.rm = TRUE)) /
-          mad(MedianBinPct,na.rm = TRUE)#,
-###FIX HERE TOO
-        #0
-      #)
+   FeatureX = mad(MedianBinPct,na.rm = TRUE),
+   FeatureZ =
+      if_else(FeatureX > 0,
+      (MedianBinPct -median(MedianBinPct,na.rm = TRUE)) / mad(MedianBinPct,na.rm = TRUE),
+      0)
   ) %>%
 
-  ungroup()
+  ungroup() 
+
+##TRIED TO FIX THIS
 ```
 
 ```{R}

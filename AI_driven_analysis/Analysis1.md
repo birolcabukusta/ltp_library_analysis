@@ -2883,7 +2883,7 @@ print(
 )
 ```
 
-    ## # A tibble: 2,993 × 11
+    ## # A tibble: 2,987 × 11
     ##     Gene     Class Metric   n_rep effect_median effect_mean effect_sd effect_mad
     ##     <chr>    <chr> <chr>    <int>         <dbl>       <dbl>     <dbl>      <dbl>
     ##   1 TTPAL    LPE   SFA_per…     2        -13.1       -13.1      20.3       21.3 
@@ -2986,7 +2986,7 @@ print(
     ##  98 OSBPL5   LPC   MUFA_pe…     2          5.25        5.25     11.8       12.4 
     ##  99 OSBPL1A  LPC   SFA_per…     2         -5.22       -5.22      9.52       9.98
     ## 100 OSBPL10  LPC   MUFA_pe…     2          5.19        5.19     13.2       13.8 
-    ## # ℹ 2,893 more rows
+    ## # ℹ 2,887 more rows
     ## # ℹ 3 more variables: effect_iqr <dbl>, sign_consistency <dbl>,
     ## #   reproducible <lgl>
 
@@ -3026,7 +3026,7 @@ print(
 )
 ```
 
-    ## # A tibble: 1,792 × 11
+    ## # A tibble: 1,795 × 11
     ##     Gene    Class Metric    n_rep effect_median effect_mean effect_sd effect_mad
     ##     <chr>   <chr> <chr>     <int>         <dbl>       <dbl>     <dbl>      <dbl>
     ##   1 PTPN9   TAG   MUFA_per…     4       -7.41      -7.03       10.2       12.4  
@@ -3070,7 +3070,7 @@ print(
     ##  39 PTPN9   PC    MUFA_per…     4       -1.06      -2.17        4.79       3.61 
     ##  40 GRAMD1C FFA   SFA_perc…     4        1.03       0.256       5.99       5.67 
     ##  41 PTPN9   FFA   SFA_perc…     4       -1.02      -6.49       13.8        4.89 
-    ##  42 PITPNB  TAG   PUFA_per…     4        0.947      1.13        1.64       1.78 
+    ##  42 PITPNB  TAG   PUFA_per…     4        0.949      1.14        1.64       1.79 
     ##  43 PTPN9   PI    PUFA_per…     4       -0.941      0.718       4.45       1.98 
     ##  44 PTPN9   CE    MUFA_per…     4       -0.929     -1.04        3.85       4.74 
     ##  45 MOSPD2  PS    VLCFA_pe…     4        0.921      1.14        1.48       1.52 
@@ -3096,7 +3096,7 @@ print(
     ##  65 PTPN9   LPE   MUFA_per…     4       -0.481      1.48        9.41       6.37 
     ##  66 PITPNB  PC    PUFA_per…     4        0.479      1.36        2.73       1.51 
     ##  67 PTPN9   PS    MUFA_per…     4       -0.447     -2.64        6.57       3.61 
-    ##  68 PTPN9   TAG   PUFA_per…     4        0.431      0.614       1.91       2.07 
+    ##  68 PTPN9   TAG   PUFA_per…     4        0.431      0.615       1.91       2.07 
     ##  69 SEC14L1 LPE   MUFA_per…     4        0.419      2.82        9.81       7.16 
     ##  70 OSBPL9  PI    HUFA_per…     4       -0.418      0.357       2.55       1.63 
     ##  71 PTPN9   PS    SFA_perc…     4        0.406      0.894       2.57       2.30 
@@ -3116,11 +3116,11 @@ print(
     ##  85 OSBPL9  PA    MUFA_per…     4        0.217      0.600       3.93       4.24 
     ##  86 SEC14L1 PA    PUFA_per…     4       -0.215      2.70        9.08       4.75 
     ##  87 MOSPD2  CE    PUFA_per…     4        0.198      0.137       8.25       9.03 
-    ##  88 PTPN9   FFA   HUFA_per…     4        0.188      0.314       0.472      0.337
-    ##  89 GRAMD1C PG    VLCFA_pe…     4        0.176      0.179       0.285      0.361
-    ##  90 MOSPD2  TAG   HUFA_per…     4        0.170      0.181       0.333      0.410
+    ##  88 MOSPD2  TAG   HUFA_per…     4        0.190      0.193       0.362      0.460
+    ##  89 PTPN9   FFA   HUFA_per…     4        0.188      0.314       0.472      0.337
+    ##  90 GRAMD1C PG    VLCFA_pe…     4        0.176      0.179       0.285      0.361
     ##  91 OSBPL9  CE    C24plus_…     4        0.160      0.210       0.606      0.694
-    ##  92 PTPN9   TAG   HUFA_per…     4        0.150      0.184       0.354      0.397
+    ##  92 PTPN9   TAG   HUFA_per…     4        0.158      0.197       0.376      0.418
     ##  93 PTPN9   PI    SFA_perc…     4        0.133     -0.175       1.24       0.785
     ##  94 GRAMD1C FFA   VLCFA_pe…     4       -0.130      0.733       2.41       1.12 
     ##  95 OSBPL9  PG    VLCFA_pe…     4        0.122      0.145       0.249      0.281
@@ -3129,7 +3129,7 @@ print(
     ##  98 GRAMD1C FFA   C24plus_…     4        0.105      0.873       2.14       1.06 
     ##  99 PITPNB  CE    C24plus_…     4        0.0805     0.0740      0.329      0.402
     ## 100 GRAMD1C PG    PUFA_per…     4        0.0776     0.117       0.909      1.08 
-    ## # ℹ 1,692 more rows
+    ## # ℹ 1,695 more rows
     ## # ℹ 3 more variables: effect_iqr <dbl>, sign_consistency <dbl>,
     ## #   reproducible <lgl>
 
@@ -3441,21 +3441,21 @@ print(
     ##    <chr>                       <dbl>                <dbl>                  <dbl>
     ##  1 OSBP                        3.71                 0.304                  0.873
     ##  2 PLEKHA8                     3.49                 0.632                  0.988
-    ##  3 HSD17B4                     3.18                 0.765                  0.985
+    ##  3 HSD17B4                     3.18                 0.779                  0.985
     ##  4 TRIO                        3.04                 0.403                  0.974
     ##  5 STARD8                      2.98                 0.382                  0.988
     ##  6 VPS13B                      2.86                 1                      0.988
-    ##  7 STARD7                      2.85                 0.721                  0.983
+    ##  7 STARD7                      2.85                 0.706                  0.983
     ##  8 ESYT3                       2.73                 0.471                  0.983
     ##  9 SCP2                        2.72                 1                      0.974
     ## 10 SEC14L4                     2.68                 0.471                  0.982
-    ## 11 GRAMD1A                     2.67                 0.382                  0.941
+    ## 11 GRAMD1A                     2.67                 0.368                  0.941
     ## 12 STARD5                      2.65                 0.529                  0.985
     ## 13 PITPNB                      2.64                 0.765                  0.974
-    ## 14 GM2A                        2.63                 0.552                  0.985
+    ## 14 GM2A                        2.63                 0.522                  0.985
     ## 15 ATCAY                       2.61                 0.464                  0.974
     ## 16 NPC1                        2.61                 0.896                  0.981
-    ## 17 BNIPL                       2.57                 0.382                  0.983
+    ## 17 BNIPL                       2.57                 0.397                  0.983
     ## 18 STARD13                     2.53                 0.552                  0.983
     ## 19 ESYT2                       2.50                 0.449                  0.976
     ## 20 ARHGAP8                     2.49                 0.853                  0.979
@@ -3468,19 +3468,19 @@ print(
     ## 27 GDAP2                       2.43                 1                      0.974
     ## 28 OSBPL9                      2.43                 0.662                  0.985
     ## 29 OSBPL5                      2.43                 0.485                  0.984
-    ## 30 TTPAL                       2.40                 0.338                  0.982
+    ## 30 TTPAL                       2.40                 0.353                  0.982
     ## 31 CLVS1                       2.37                 0.426                  0.985
-    ## 32 GRAMD1B                     2.36                 0.338                  0.967
+    ## 32 GRAMD1B                     2.36                 0.368                  0.967
     ## 33 VPS13A                      2.34                 0.529                  0.967
-    ## 34 SEC14L6                     2.32                 0.279                  0.985
-    ## 35 PRUNE2                      2.32                 0.463                  0.975
-    ## 36 MCF2L2                      2.31                 0.313                  0.984
+    ## 34 SEC14L6                     2.32                 0.294                  0.985
+    ## 35 PRUNE2                      2.32                 0.478                  0.975
+    ## 36 MCF2L2                      2.31                 0.328                  0.984
     ## 37 SEC14L2                     2.29                 1                      0.981
     ## 38 PITPNM3                     2.28                 0.522                  0.975
     ## 39 TTPA                        2.26                 1                      0.983
     ## 40 OSBPL2                      2.25                 0.515                  0.984
-    ## 41 KIAA1755                    2.21                 0.324                  0.978
-    ## 42 C2CD2L                      2.20                 0.471                  0.984
+    ## 41 KIAA1755                    2.22                 0.324                  0.978
+    ## 42 C2CD2L                      2.20                 0.485                  0.984
     ## 43 STARD10                     2.19                 0.582                  0.978
     ## 44 STOML1                      2.18                 0.471                  0.981
     ## 45 ACOT11                      2.15                 0.448                  0.982
@@ -3498,36 +3498,36 @@ print(
     ## 57 COL4A3BP                    1.95                 1                      0.979
     ## 58 NPC2                        1.95                 1                      0.959
     ## 59 TEX2                        1.92                 1                      0.964
-    ## 60 C2CD2                       1.91                 0.358                  0.964
+    ## 60 C2CD2                       1.91                 0.373                  0.964
     ## 61 CLVS2                       1.88                 0.324                  0.985
     ## 62 SEC14L3                     1.87                 1                      0.978
     ## 63 VPS13D                      1.87                 1                      0.977
     ## 64 OSBPL1A                     1.87                 0.471                  0.983
-    ## 65 ESYT1                       1.86                 0.426                  0.979
+    ## 65 ESYT1                       1.86                 0.441                  0.979
     ## 66 SEC14L5                     1.85                 0.324                  0.978
-    ## 67 NF1                         1.84                 0.456                  0.986
+    ## 67 NF1                         1.84                 0.441                  0.986
     ## 68 OSBPL7                      1.83                 0.382                  0.984
     ## 69 SESTD1                      1.80                 1                      0.958
     ## 70 DLC1                        1.80                 0.382                  0.978
-    ## 71 NPC1L1                      1.80                 0.456                  0.980
-    ## 72 RLBP1                       1.77                 0.353                  0.972
+    ## 71 NPC1L1                      1.80                 0.471                  0.980
+    ## 72 RLBP1                       1.77                 0.368                  0.972
     ## 73 OSBPL8                      1.76                 1                      0.974
     ## 74 SEC14L1                     1.76                 0.735                  0.974
     ## 75 HSDL2                       1.75                 0.324                  0.985
     ## 76 GLTP                        1.73                 1                      0.979
-    ## 77 STARD3                      1.70                 0.647                  0.982
+    ## 77 STARD3                      1.70                 0.632                  0.982
     ## 78 KALRN                       1.70                 0.279                  0.977
     ## 79 LY86                        1.67                 0.507                  0.979
-    ## 80 OSBPL3                      1.66                 0.368                  0.982
+    ## 80 OSBPL3                      1.66                 0.353                  0.982
     ## 81 PITPNM1                     1.65                 0.5                    0.989
     ## 82 STARD6                      1.64                 1                      0.982
-    ## 83 OSBPL10                     1.58                 0.435                  0.982
+    ## 83 OSBPL10                     1.58                 0.420                  0.982
     ## 84 ARHGAP1                     1.58                 0.441                  0.984
     ## 85 STARD9                      1.55                 1                      0.988
     ## 86 GRAMD1C                     1.43                 0.791                  0.987
     ## 87 VPS13C                      1.35                 0.388                  0.986
     ## 88 STARD4                      1.29                 1                      0.975
-    ## 89 STAR                        1.20                 0.319                  0.986
+    ## 89 STAR                        1.20                 0.333                  0.986
     ## 90 PCTP                        0.846                0.418                  0.986
     ## # ℹ abbreviated names: ¹​StructuralPhenotypeStrength,
     ## #   ²​MedianReplicateCorrelation

@@ -6,11 +6,13 @@ library(readr)
 library(dplyr)
 
 
-setwd('~/Desktop/AnalysisLTPlibrary/')
+#setwd('~/Desktop/AnalysisLTPlibrary/')
 ltp.string <- readxl::read_xlsx('~/Desktop/AnalysisLTPlibrary/_lbp_library_full2.xlsx',1)
-fa1 <- read_csv('data/LipidSpeciesConcentration_NB_2021_021.csv')
-fa2 <- read_csv('data/LipidSpeciesConcentration_NB_2021_034.csv')
-fa3 <- read_csv('data/LIpidSpeciesConcentration_NB_2021_042.csv')
+path = '~/Desktop/AnalysisLTPlibrary/data/'
+
+fa1 <- read_csv(paste0(path, 'LipidSpeciesConcentration_NB_2021_021.csv'))
+fa2 <- read_csv(paste0(path, 'LipidSpeciesConcentration_NB_2021_034.csv'))
+fa3 <- read_csv(paste0(path, 'LIpidSpeciesConcentration_NB_2021_042.csv'))
 
 
 fa1 <- melt(fa1[-1], id.vars = c('SampleID'),variable.name = 'Type', value.name = 'nmolg')
@@ -85,14 +87,28 @@ quad4 = rbind.fill(
    
    quad3 %>% 
       filter(str_detect(Class, 'TAG')) %>% 
-      #filter(!str_detect(Class, 'CE')) %>% 
-      #filter(!Class %in% c("FFA", 'PA','LPC','LPE','SM')) %>% 
+      filter(nchar(Tails)==6) %>% 
+      
       mutate(Tail_1 = substr(Tails, 4,6)) %>%  
       mutate(Tail_1_length = substr(Tail_1, 1,2),
              Tail_1_bend = substr(Tail_1, 3,3)) %>% 
       mutate(Total_tail_length = substr(Tails, 1,2),
-             Total_tail_bend = substr(Tails, 3,3)) 
+             Total_tail_bend = substr(Tails, 3,3)) ,
+   
+   quad3 %>% 
+      filter(str_detect(Class, 'TAG')) %>% 
+      filter(nchar(Tails)==7) %>% 
+      
+      mutate(Tail_1 = substr(Tails, 5,7)) %>%  
+      mutate(Tail_1_length = substr(Tail_1, 1,2),
+             Tail_1_bend = substr(Tail_1, 3,3)) %>% 
+      mutate(Total_tail_length = substr(Tails, 1,2),
+             Total_tail_bend = substr(Tails, 3,4)) 
+   
+   
 )
+
+
 
 
 
