@@ -3,9 +3,27 @@ LTP KO library analysis
 Birol Cabukusta
 2026-07-27
 
+
+
 ## GLOBAL ANALYSIS OF LTP KNOCKOUT LIBRARY IN MELJUSO CELLS
 
+> **Published work**
+>
+> This repository contains the code and materials associated with:
+>
+> **“The ORP9-ORP11 dimer promotes sphingomyelin synthesis”**
+> 
+> Cabukusta et al. 2024
+> 
+> (https://elifesciences.org/articles/91345)
+> 
+>
+> If you use this work, please cite the publication above. See the [Citation](#citation) section below for citation details.
+
+
 Total cell lipidomics
+
+
 
 ## Load data
 
