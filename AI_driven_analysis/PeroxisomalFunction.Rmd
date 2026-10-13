@@ -1,0 +1,1014 @@
+---
+title: "Analysis for peroxisome imbalance"
+author: "Birol Cabukusta"
+date: "2026-10-08"
+output: github_document
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+Adapted from Analysis 2 (Created by ChatGPT). Doing this analysis for **Joe Costello (Exeter)** to see how the peroxisomal biology is effected in LTP knockouts. I will follow a
+previous prompt by ChatGPT:
+
+1.  LPC 26:0
+
+-   Abundance; optionally LPC 26:0/LPC 22:0
+-   A particularly useful starting marker for VLCFA accumulation
+
+2.  VLCFA-containing lipids
+
+-   Species containing 24:0, 26:0, or 26:1, analyzed separately within
+    each lipid class
+-   Look for a coordinated shift toward longer chains
+
+3.  Chain-length ratios
+
+-   C26:0-containing/C22:0-containing species within the same class
+
+4.  Ether PC and PE
+
+-   Ether species relative to corresponding diacyl species; plasmalogens
+    separately if resolved
+
+5.  DHA-containing lipids:
+
+-   Species with a confirmed 22:6 chain
+
+------------------------------------------------------------------------
+
+# 1. Setup
+
+```{R}
+# ============================================================
+# LTP KO LIBRARY
+# COMPOSITIONAL LIPID + SATURATION REMODELLING ANALYSIS
+# ============================================================
+
+library(tidyverse)
+library(ggrepel)
+library(ggthemes)
+library(ggbeeswarm)
+library(reshape2)
+
+knitr::opts_chunk$set(echo = F,warning = FALSE,
+  message = FALSE,fig.width = 10,fig.height = 7
+)
+
+theme_set(
+  theme_base(base_size = 10) +
+    theme(
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = "grey95")
+    )
+)
+
+options(dplyr.summarise.inform = FALSE)
+
+
+# ------------------------------------------------------------
+# SETTINGS
+# ------------------------------------------------------------
+
+
+CONTROL_GENES <- paste0("NonTarget_", 1:6)  
+REFERENCE_MODE <- "controls"
+
+EXCLUDE_GENES <- c(
+  # "GENE1",
+  # "GENE2"
+)
+
+EXCLUDE_SAMPLE_KEYS <- c(
+  # "GENE1__Sample1__Extraction1__Roster1"
+)
+
+
+# Number of biological replicates we ideally want
+MIN_REPLICATES <- 2
+
+# Replicate correlation below this is worth inspecting.
+MIN_REPLICATE_CORRELATION <- 0.70
+
+
+# Compensation thresholds.
+# A class is considered "stable" when its abundance differs
+# by less than:
+# max(1 percentage point, 20% of its reference abundance)
+
+CLASS_STABILITY_MIN_PP <- 1
+CLASS_STABILITY_RELATIVE <- 0.20
+
+
+# At least this much of the within-class saturation
+# distribution must be rearranged.
+
+MIN_REDISTRIBUTION_PERCENT <- 10
+
+# Replicate saturation profiles should point in approximately
+# the same direction.
+
+MIN_PROFILE_AGREEMENT <- 0.50
+
+
+# Heatmap sizes
+TOP_N_SPECIES <- 50
+```
+
+------------------------------------------------------------------------
+
+# 2. Prepare the raw data
+
+```{R}
+# ============================================================
+# DATA PREPARATION
+# ============================================================
+acyls1 = read_csv("../data/LTP_acyl_concentrations_raw1.csv")
+#acyls1 = read_csv("data/LTP_acyl_concentrations_raw1.csv")
+#acyls1 = read_csv("data/LTP_acyl_concentrations_raw1.csv")
+
+acyls1 <- acyls1 %>% 
+   mutate(X = paste0(Class, "(",Tails,")")) 
+
+
+acyls_raw <- acyls1[-1] %>%
+   mutate(
+      Gene = as.character(Target.Gene.Symbol), 
+      LipidSpecies = as.character(X),
+      Class = as.character(Class),
+      nmol = as.numeric(nmolg), 
+      TotalDB = as.numeric(Total_tail_bend), 
+      TotalLength = as.numeric(Total_tail_length),
+      Tail1DB = as.numeric(Tail_1_bend),
+      Tail2DB = as.numeric(Tail_2_bend),
+      Tail1Length = as.numeric(Tail_1_length),
+      Tail2Length = as.numeric(Tail_2_length),
+      ExpectedTails = readr::parse_number(as.character(Tails)),
+      Group = if_else(Gene %in% CONTROL_GENES, "CTRL", "KO"),
+      SampleKey = paste(Gene, SampleID, Extraction, Roster, sep = "__"),
+      Feature = paste(Class, LipidSpecies, sep = " | ")
+   ) %>%
+   filter(!is.na(Gene),
+          !is.na(Class),
+          !is.na(LipidSpecies),
+          is.finite(nmol),
+          nmol >= 0)
+```
+
+Check the samples:
+
+```{R}
+acyls_raw %>% 
+  distinct(
+    Gene, SampleID, Extraction, Roster, SampleKey
+  ) %>%
+  arrange(Gene,SampleID) %>%
+  print(n = Inf)
+```
+
+------------------------------------------------------------------------
+
+# 3. Function for within-sample normalization
+
+This is now the core of the analysis.
+
+```{R}
+make_species_table <- function(dat) {
+
+  dat %>%
+
+    group_by(
+      SampleKey,
+      Gene,
+      Group,
+      LBP_Family,
+      SampleID,
+      Extraction,
+      Roster,
+      Type2,
+      Class,
+      LipidSpecies,
+      Feature,
+      Tails,
+      Tail_1,
+      Tail1Length,
+      Tail1DB,
+      Tail_2,
+      Tail2Length,
+      Tail2DB,
+      TotalLength,
+      TotalDB,
+      ExpectedTails
+    ) %>%
+
+    summarise(
+      nmol =
+        sum(
+          nmol,
+          na.rm = TRUE
+        ),
+      .groups = "drop"
+    ) %>%
+
+    # ---------------------------------
+    # FIRST NORMALIZATION:
+    # each species as fraction of
+    # the complete sample lipidome
+    # ---------------------------------
+
+    group_by(
+      SampleKey
+    ) %>%
+
+    mutate(
+      SampleTotalNmol =sum(nmol,na.rm = TRUE),
+      SampleMolFraction = nmol / SampleTotalNmol,
+      SampleMolPct =
+        100 *
+        SampleMolFraction
+    ) %>%
+
+    ungroup() %>%
+
+    # ---------------------------------
+    # SECOND NORMALIZATION:
+    # species as fraction of its class
+    #
+    # This is used for saturation
+    # redistribution / compensation.
+    # ---------------------------------
+
+    group_by(
+      SampleKey,
+      Class
+    ) %>%
+
+    mutate(
+
+      ClassNmol =
+        sum(
+          nmol,
+          na.rm = TRUE
+        ),
+
+      ClassMolPct =
+        100 *
+        ClassNmol /
+        first(
+          SampleTotalNmol
+        ),
+
+      WithinClassFraction =
+        nmol /
+        ClassNmol,
+
+      WithinClassPct =
+        100 *
+        WithinClassFraction
+    ) %>%
+
+    ungroup()
+}
+```
+
+Initial normalization, before exclusions:
+
+```{R}
+species_initial <-
+  make_species_table(
+    acyls_raw
+  )
+
+
+
+```
+
+Check that each sample sums to 100%:
+
+```{R}
+species_initial %>%
+  group_by(
+    SampleKey
+  ) %>%
+  summarise(
+    TotalPct =
+      sum(
+        SampleMolPct
+      ),
+    .groups = "drop"
+  ) %>%
+  summary()
+```
+
+These should all be approximately `100`.
+
+------------------------------------------------------------------------
+
+# 4. QC before excluding anything
+
+Because the analysis is compositional, I would assess replicate
+similarity using a **CLR-like transformation of the within-sample
+proportions**, rather than raw nmol.
+
+```{R}
+# ============================================================
+# QC
+# ============================================================
+
+clr_transform <- function(x) {
+  x <- as.numeric(x)
+  positive <-
+    x[
+      is.finite(x) &
+      x > 0
+    ]
+  if (length(positive) == 0) {
+    return(
+      rep(
+        0,
+        length(x)
+      )
+    )
+  }
+
+  pseudo <-
+    min(positive) / 2
+  lx <-
+    log(
+      x +
+      pseudo
+    )
+
+  lx -
+    mean(lx)
+}
+
+
+safe_cor <- function(x, y) {
+  ok <-
+    is.finite(x) & is.finite(y)
+
+  if (sum(ok) < 5)
+    return(NA_real_)
+
+  if (
+    sd(x[ok]) == 0 || sd(y[ok]) == 0
+  )
+    return(NA_real_)
+
+  cor(
+    x[ok],
+    y[ok],
+    method = "spearman"
+  )
+}
+```
+
+Create sample × species matrix:
+
+```{R}
+qc_wide <- species_initial %>%
+  group_by(
+    SampleKey,
+    Feature
+  ) %>%
+
+  summarise(
+    SampleMolPct =
+      sum(
+        SampleMolPct
+      ),
+    .groups = "drop"
+  ) %>%
+
+  pivot_wider(
+    names_from =
+      Feature,
+    values_from =
+      SampleMolPct,
+    values_fill = 0
+  )
+
+
+qc_ids <-
+  qc_wide$SampleKey
+
+
+qc_matrix <-
+  qc_wide %>%
+  select(
+    -SampleKey
+  ) %>%
+  as.matrix()
+
+
+rownames(qc_matrix) <- qc_ids
+
+
+qc_clr <-
+  t(
+    apply(
+      qc_matrix,
+      1,
+      clr_transform
+    )
+  )
+```
+
+Sample metadata:
+
+```{R}
+sample_metadata <- species_initial %>%
+  distinct(
+    SampleKey,
+    Gene,
+    Group,
+    SampleID,
+    Extraction,
+    Roster,
+    LBP_Family
+  )
+```
+
+------------------------------------------------------------------------
+
+# 5. Replicate-to-consensus correlation
+
+For every replicate, compare its lipidome with the median of the other
+replicates for that same LTP.
+
+```{R}
+replicate_correlations <-
+  map_dfr(
+    unique(
+      sample_metadata$Gene
+    ),
+
+    function(gene_i) {
+
+      ids <-
+        sample_metadata %>%
+        filter(
+          Gene == gene_i
+        ) %>%
+        pull(
+          SampleKey
+        )
+
+
+      if (length(ids) < 2) {
+
+        return(
+          tibble(
+            SampleKey = ids,
+            ReplicateConsensusR =
+              NA_real_
+          )
+        )
+      }
+
+
+      map_dfr(
+
+        ids,
+
+        function(id_i) {
+
+          other_ids <-
+            setdiff(
+              ids,
+              id_i
+            )
+
+
+          consensus <-
+            apply(
+              qc_clr[
+                other_ids,
+                ,
+                drop = FALSE
+              ],
+              2,
+              median,
+              na.rm = TRUE
+            )
+
+
+          tibble(
+
+            SampleKey =
+              id_i,
+
+            ReplicateConsensusR =
+              safe_cor(
+                qc_clr[
+                  id_i,
+                ],
+                consensus
+              )
+          )
+        }
+      )
+    }
+  )
+```
+
+Sample totals:
+
+```{R Sample totals}
+qc_summary <- species_initial %>%
+
+  group_by(
+    SampleKey,
+    Gene,
+    Group,
+    SampleID
+  ) %>%
+
+  summarise(
+
+    TotalNmol =
+      first(
+        SampleTotalNmol
+      ),
+
+    DetectedSpecies =
+      sum(
+        nmol > 0
+      ),
+
+    .groups = "drop"
+  ) %>%
+
+  left_join(
+    replicate_correlations,
+    by = "SampleKey"
+  ) %>%
+
+  mutate(
+
+    BadReplicate =
+      !is.na(
+        ReplicateConsensusR
+      ) &
+      ReplicateConsensusR <
+        MIN_REPLICATE_CORRELATION
+  )
+```
+
+Plot:
+
+```{R}
+ggplot(
+  qc_summary,
+  aes(x = Gene, y = ReplicateConsensusR)) +
+   geom_hline(yintercept = MIN_REPLICATE_CORRELATION, linetype = 2 ) +
+  geom_point(aes(shape =BadReplicate),
+    position =position_jitter(width = 0.15), size = 2.5) +
+  geom_text_repel(data =
+                     qc_summary %>%
+                     filter(BadReplicate),
+                  aes(label =paste0(Gene," / ",SampleID)),
+                  size = 3,max.overlaps = Inf) +
+   coord_flip() +
+   labs(title ="Reproducibility of within-sample-normalized lipidomes",
+        x = NULL,y ="Correlation with other replicates")
+```
+
+This is where I would identify the obviously non-reproducible samples.
+
+Print their exact keys:
+
+```{R}
+qc_summary %>%
+   filter(BadReplicate) %>%
+   select(Gene,SampleID,SampleKey,ReplicateConsensusR) %>%
+   arrange(ReplicateConsensusR) %>%
+   print(n = Inf)
+```
+
+Then put the problematic ones into `EXCLUDE_SAMPLE_KEYS` at the top.
+
+------------------------------------------------------------------------
+
+# 6. Apply exclusions and renormalize
+
+This renormalization step is important: if a complete sample is removed,
+no issue. The percentages of the remaining samples are calculated
+independently anyway.
+
+```{R}
+EXCLUDE_SAMPLE_KEYS = c(
+   "COL4A3BP__K90__K__90",
+   "GLTPD2__H45__H__45",
+   "SEC14L2__J49__J__49"
+)
+
+acyls_clean <- acyls_raw %>%
+  filter(
+    !Gene %in% EXCLUDE_GENES,
+    !SampleKey %in% EXCLUDE_SAMPLE_KEYS
+  )
+
+species <-
+  make_species_table(
+    acyls_clean
+  )
+
+
+#anti_join(acyls_raw, acyls_clean) %>% View
+
+```
+
+------------------------------------------------------------------------
+
+Scale each species across LTPs for visualization:
+
+
+
+------------------------------------------------------------------------
+
+# Part C — Start peroxiome analysis
+
+There are two useful ways of doing this.
+
+## Analysis 1: LPC 26:0
+
+No LPC 26:0
+
+```{R}
+species_gene %>% 
+  filter(LipidSpecies == 'LPC(260)') 
+
+
+```
+
+## Analysis 2: VLCFA-containing lipids
+- Species containing 24:0, 26:0, or 26:1, analyzed separately within each lipid class
+- Look for a coordinated shift toward longer chains
+
+
+```{R}
+species_gene %>% 
+  filter(!Class == 'PA') %>% 
+  filter(Tail_1 > 230) %>% 
+  ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
+  #ggplot(aes(Class, MedianSampleMolPct)) +
+  facet_wrap(.~LipidSpecies, scales = 'free') +
+  geom_quasirandom() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        aspect.ratio = 1) +
+  labs(title = 'All lipids with VLCFA',
+       y = 'Median within Class Percentage')
+
+# Set the number of top/bottom points you want to highlight
+N = 3
+
+species_gene %>% 
+  filter(Class != 'PA', Tail_1 > 230) %>% 
+  group_by(LipidSpecies) %>% 
+  mutate(
+    rank_desc = row_number(desc(MedianWithinClassPct)), # 1 = Highest
+    rank_asc  = row_number(MedianWithinClassPct),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  ungroup() %>% 
+  ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
+  geom_quasirandom(color = "grey60", alpha = 0.7) +
+  # Highlight the top and bottom points with colored dots
+  # geom_point(
+  #   data = . %>% filter(!is.na(highlight_type)),
+  #   aes(color = highlight_type),
+  #   size = 2.5
+  # ) +
+  # Add text labels for the highlighted points
+  geom_text_repel(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(label = Gene, color = highlight_type),
+    size = 3.5,
+    max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
+    box.padding = 0.5,
+    point.padding = 0.3, 
+    nudge_x = 1
+  ) +
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) +
+  facet_wrap(~LipidSpecies, scales = 'free') +
+  #theme_minimal() +
+  #labs(color = "Highlighted") +
+    theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        aspect.ratio = 0.5) +
+  labs(title = 'All lipids with VLCFA',
+       y = 'Median within Class Percentage')
+
+```
+
+
+Compare HSD17B4 to the rest
+```{R}
+
+QueryLipidClass = 'CE'
+
+
+show_the_rest = function(QueryLipidClass) {
+  plot_12 = species_gene %>% 
+    filter(Class %in% c("DCER", "CER", "HCER", "CE", "FFA")) %>%
+    filter(Class == QueryLipidClass) %>% 
+    mutate(
+      is_target = if_else(Gene %in% c('HSD17B4'), "HSD17B4", "Other")
+    )%>% 
+    ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
+    facet_wrap(LipidSpecies~., scales = 'free') +
+    #geom_quasirandom(aes(color = is_target), alpha = 0.7) +
+    # Highlight the top and bottom points with colored dots
+    geom_quasirandom(
+      data = . %>% filter(is_target == 'Other'), color = 'grey50'
+      #position
+    ) + 
+    geom_point(
+      data = . %>% filter(is_target == 'HSD17B4'), 
+      color = '#C00', 
+      size = 3
+    ) +
+    geom_errorbar(
+      data = . %>% filter(is_target == 'HSD17B4'), 
+      color = '#C00', 
+      aes(ymin = MedianWithinClassPct-DeviationWithinClassPct, 
+          ymax = MedianWithinClassPct +DeviationWithinClassPct 
+      ),
+      width = 0
+    )+
+    # Add text labels for the highlighted points
+    #scale_color_manual(values = c( "Other" = "dodgerblue", "HSD17B4" = "firebrick")) +
+    #scale_size_manual(values = c("HSD17B4" = 3, "Other" = 1)) +
+    theme(axis.text.x = element_blank(),
+          #axis.ticks.x = element_blank(),
+          aspect.ratio = 0.5) +
+    labs(title = 
+           paste(
+             'All lipids of those that contain', 
+             QueryLipidClass
+           ),
+         y = 'Median within Class Percentage',
+         x = '')
+  return(plot_12)
+}
+
+
+show_the_rest("CER")
+show_the_rest("DCER")
+show_the_rest("HCER")
+show_the_rest("CE")
+show_the_rest("FFA")
+
+
+```
+
+
+## Analysis 3: Chain-length ratios
+
+C26:0-containing/C22:0-containing species within the same class
+
+```{R}
+
+  
+species_long2short = species %>%
+  filter(!Class == 'PA') %>% 
+  filter(!Class == 'TAG') %>% 
+  filter(Tail1Length %in% c(22, 26)) %>% 
+  group_by(
+    SampleKey,
+    Gene,
+    Class,
+    Tail1DB) %>% 
+  dcast(SampleKey+Gene+Class+Tail1DB ~ Tail1Length, 
+        value.var = 'nmol',
+        fill = 0) %>% 
+  mutate(LongToShortRatio = `26`/`22`) %>% 
+  filter(! LongToShortRatio == 0) %>% 
+  filter(! LongToShortRatio == Inf) %>% 
+  ungroup() %>% 
+  
+  group_by(
+    Gene,
+    Class,
+    Tail1DB,
+  ) %>%
+  
+  # Step 3: Summarize centered data (MedianSampleMolPct_Centered will evaluate to 0)
+  summarise(
+    n = n_distinct(SampleKey),
+    
+    Median_LongToShortRatio = median(LongToShortRatio, na.rm = TRUE),
+    Deviation_LongToShortRatio = sd(LongToShortRatio, na.rm = TRUE),
+    .groups = "drop"
+  ) 
+  
+  
+
+N = 3
+
+species_long2short %>% 
+  group_by(Class, Tail1DB) %>% 
+  mutate(
+    rank_desc = row_number(desc(Median_LongToShortRatio)), # 1 = Highest
+    rank_asc  = row_number(Median_LongToShortRatio),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  ungroup() %>% 
+  ggplot(aes(1, Median_LongToShortRatio)) +
+  facet_wrap(Class~Tail1DB, scale = 'free') +
+  geom_quasirandom(color = "grey60", alpha = 0.7) +
+  # Highlight the top and bottom points with colored dots
+  # geom_point(
+  #   data = . %>% filter(!is.na(highlight_type)),
+  #   aes(color = highlight_type),
+  #   size = 2.5
+  # ) +
+  # Add text labels for the highlighted points
+  geom_text_repel(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(label = Gene, color = highlight_type),
+    size = 3.5,
+    max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
+    box.padding = 0.5,
+    point.padding = 0.3, 
+    nudge_x = 1
+  ) +
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
+
+
+```
+
+
+## Analysis 4:  Ether PC and PE
+
+-   Ether species relative to corresponding diacyl species; plasmalogens separately if resolved
+
+
+```{R}
+#zscore function
+z.score = 
+  function(x) {
+    Score = (x - mean(x, na.rm = T)) - sd(x, na.rm = T)
+    # if(is.infinite(Score))
+    #   return(NA)
+    # else
+    return(Score)
+  
+}
+
+
+#grouped by Tail_1 as it is the O- or P- linked tail.
+
+species.ether = 
+  species %>%  
+  filter(Class %in% c('PE','PEP','PEO')) %>% 
+  group_by(
+    SampleKey,
+    Gene, 
+    Roster,
+    Tail_1,
+    Class
+  ) %>% 
+  summarise(tails.sum.nmol = sum(nmol, na.rm = T)) %>% 
+  ungroup() %>% 
+  dcast(
+    SampleKey+Gene+Roster+Tail_1~Class,
+    value.var = 'tails.sum.nmol'
+  ) %>% 
+  group_by(Gene, Roster, Tail_1) %>% 
+  summarise(meanPEO2PE = mean(PEO/PE, na.rm = T),
+            meanPEP2PE = mean(PEP/PE, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(Tail_1) %>% 
+  mutate(
+    z.peo.2.pe.ratio = z.score(meanPEO2PE),
+    z.pep.2.pe.ratio = z.score(meanPEP2PE)
+  ) 
+  
+N = 3
+species.ether %>% 
+  group_by(Tail_1) %>% 
+  mutate(
+    rank_desc = row_number(desc(meanPEP2PE)), # 1 = Highest
+    rank_asc  = row_number(meanPEP2PE),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  #filter( Tail_1 == 161) %>% 
+  #filter(Roster < 3) %>% 
+  ggplot(
+    aes(1, meanPEP2PE
+    )
+  ) +
+  facet_wrap(.~Tail_1, scales = 'free_y',nrow = 1) +
+  #geom_boxplot(aes(group = Roster)) +
+  #geom_line(group) + 
+  geom_quasirandom() +
+  geom_text_repel(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(label = Gene, color = highlight_type),
+    size = 3.5,
+    max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
+    box.padding = 0.5,
+    point.padding = 0.3, 
+    nudge_x = 2
+  ) +
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
+  
+
+
+
+```
+
+
+## Analysis 5:  DHA-containing lipids
+
+
+
+```{R}
+
+
+
+#Check the total % of DHA-containing lipids
+species.DHA = 
+  species %>%  
+  filter(Tail_1 == 226 | Tail_2 == 226) %>% 
+  group_by(
+    SampleKey,
+    Gene, 
+    Roster,
+  ) %>% 
+  summarise(dha.total.perc = sum(SampleMolPct, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(Gene, Roster) %>% 
+  summarise(meanDHA = mean(dha.total.perc, na.rm = T),
+            sdDHA = sd(dha.total.perc, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(
+    z.DHA = z.score(meanDHA)
+  ) 
+  
+N = 5
+species.DHA %>% 
+  #group_by(Tail_1) %>% 
+  mutate(
+    rank_desc = row_number(desc(meanDHA)), # 1 = Highest
+    rank_asc  = row_number(meanDHA),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  #filter( Tail_1 == 161) %>% 
+  #filter(Roster < 3) %>% 
+  ggplot(
+    aes(reorder(Roster, meanDHA), 
+        meanDHA
+    )
+  ) +
+  geom_hline(aes(yintercept =  median(meanDHA)+sd(meanDHA)), 
+             color = 'grey50', 
+             linetype = 'dashed') +
+  geom_hline(aes(yintercept =  median(meanDHA)-sd(meanDHA)), 
+             color = 'grey50', 
+             linetype = 'dashed') +
+  geom_hline(aes(yintercept =  median(meanDHA)), 
+             color = 'grey50', 
+             linetype = 'dashed') +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = meanDHA-sdDHA, 
+        ymax = meanDHA+sdDHA),
+    width = 0) +
+  geom_text_repel(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(label = Gene, color = highlight_type),
+    size = 3.5,
+    max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
+    box.padding = 0.5,
+    point.padding = 0.3, 
+    #nudge_x = 2
+  ) +
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
+  
+
+
+
+
+```
