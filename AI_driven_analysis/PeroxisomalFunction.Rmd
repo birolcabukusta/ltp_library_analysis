@@ -9,8 +9,7 @@ editor_options:
     wrap: 72
 ---
 
-Adapted from Analysis 2 (Created by ChatGPT). Doing this analysis for **Joe Costello (Exeter)** to see how the peroxisomal biology is effected in LTP knockouts. I will follow a
-previous prompt by ChatGPT:
+Adapted from Analysis 2. Doing this analysis for **Joe Costello (Exeter)** to see how the peroxisomal biology is effected in LTP knockouts. I will anaylze the dataset for the following metrics (suggested by ChatGPT) to evaluate peroxisomal biology:
 
 1.  LPC 26:0
 
@@ -40,7 +39,7 @@ previous prompt by ChatGPT:
 
 # 1. Setup
 
-```{R}
+```{R echo = F, warning = F}
 # ============================================================
 # LTP KO LIBRARY
 # COMPOSITIONAL LIPID + SATURATION REMODELLING ANALYSIS
@@ -50,6 +49,7 @@ library(tidyverse)
 library(ggrepel)
 library(ggthemes)
 library(ggbeeswarm)
+library(ggsignif)
 library(reshape2)
 
 knitr::opts_chunk$set(echo = F,warning = FALSE,
@@ -157,14 +157,15 @@ acyls_raw <- acyls1[-1] %>%
 ```
 
 Check the samples:
+Run this to list all ~250 measurements
 
 ```{R}
-acyls_raw %>% 
-  distinct(
-    Gene, SampleID, Extraction, Roster, SampleKey
-  ) %>%
-  arrange(Gene,SampleID) %>%
-  print(n = Inf)
+# acyls_raw %>% 
+#   distinct(
+#     Gene, SampleID, Extraction, Roster, SampleKey
+#   ) %>%
+#   arrange(Gene,SampleID) %>%
+#   print(n = Inf)
 ```
 
 ------------------------------------------------------------------------
@@ -624,14 +625,47 @@ species <-
 ------------------------------------------------------------------------
 
 Scale each species across LTPs for visualization:
+```{R}
+species_gene <- species %>%
+  group_by(
+    Gene,
+    LBP_Family,
+    Class,
+    LipidSpecies,
+    Feature,
+    Tail_1,
+    Tail_2
+  ) %>%
 
+  summarise(
+
+    n =
+      n_distinct(
+        SampleKey
+      ),
+
+    MedianSampleMolPct =
+      median(
+        SampleMolPct,
+        na.rm = TRUE
+      ),
+
+    MedianWithinClassPct =
+      median(
+        WithinClassPct,
+        na.rm = TRUE
+      ),
+
+    .groups = "drop"
+  )
+
+
+```
 
 
 ------------------------------------------------------------------------
 
-# Part C — Start peroxiome analysis
-
-There are two useful ways of doing this.
+# 7. Start peroxiome analysis
 
 ## Analysis 1: LPC 26:0
 
@@ -650,18 +684,18 @@ species_gene %>%
 
 
 ```{R}
-species_gene %>% 
-  filter(!Class == 'PA') %>% 
-  filter(Tail_1 > 230) %>% 
-  ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
-  #ggplot(aes(Class, MedianSampleMolPct)) +
-  facet_wrap(.~LipidSpecies, scales = 'free') +
-  geom_quasirandom() +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        aspect.ratio = 1) +
-  labs(title = 'All lipids with VLCFA',
-       y = 'Median within Class Percentage')
+# species_gene %>% 
+#   filter(!Class == 'PA') %>% 
+#   filter(Tail_1 > 230) %>% 
+#   ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
+#   #ggplot(aes(Class, MedianSampleMolPct)) +
+#   facet_wrap(.~LipidSpecies, scales = 'free') +
+#   geom_quasirandom() +
+#   theme(axis.text.x = element_blank(),
+#         axis.ticks.x = element_blank(),
+#         aspect.ratio = 1) +
+#   labs(title = 'All lipids with VLCFA',
+#        y = 'Median within Class Percentage')
 
 # Set the number of top/bottom points you want to highlight
 N = 3
@@ -680,7 +714,13 @@ species_gene %>%
   ) %>% 
   ungroup() %>% 
   ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
-  geom_quasirandom(color = "grey60", alpha = 0.7) +
+  geom_quasirandom(
+    data = . %>% filter(is.na(highlight_type)),
+                        color = "grey60", alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(color = highlight_type),
+                         alpha = 0.7) +
   # Highlight the top and bottom points with colored dots
   # geom_point(
   #   data = . %>% filter(!is.na(highlight_type)),
@@ -702,70 +742,106 @@ species_gene %>%
   #theme_minimal() +
   #labs(color = "Highlighted") +
     theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        aspect.ratio = 0.5) +
+        axis.ticks.x = element_blank()
+        #aspect.ratio = 0.5
+        ) +
   labs(title = 'All lipids with VLCFA',
        y = 'Median within Class Percentage')
 
 ```
 
 
-Compare HSD17B4 to the rest
+*Print the results:*
+
+```{R}
+species_gene %>% 
+  filter(Class != 'PA', Tail_1 > 230) %>% 
+  group_by(LipidSpecies) %>% 
+  mutate(
+    rank_desc = row_number(desc(MedianWithinClassPct)), # 1 = Highest
+    rank_asc  = row_number(MedianWithinClassPct),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  ungroup() %>% 
+  group_by(Class) %>% 
+  filter(!is.na(highlight_type))
+  
+
+```
+
+HSD17B4 appears as an interesting candidate. Let's investigate little further.
+
 ```{R}
 
-QueryLipidClass = 'CE'
+#
+species %>% 
+  filter(Gene == 'HSD17B4' | is.na(LBP_Family)) %>% 
+  #filter(Class != 'PA', Tail_1 > 230) %>% 
+  filter(Class == 'CER') %>% 
+  ##group_by(LipidSpecies) %>% 
+  #filter(LipidSpecies == 'CE(240)') %>%  
+  ggplot(aes(LBP_Family, WithinClassPct)) +
+  scale_x_discrete(limits = c(NA,"SCP2"), 
+                   labels = c("Control", "HSD17B4")) +
+  facet_wrap(.~LipidSpecies, nrow = 2, scale = 'free_y') +
+  geom_boxplot(outlier.alpha = 0) +
+  theme_base(12)+
+  theme(aspect.ratio = 2,
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
+  geom_quasirandom()
 
+#
+species %>% 
+  filter(Gene == 'HSD17B4' | is.na(LBP_Family)) %>% 
+  filter(Class == 'HCER') %>% 
+  ggplot(aes(LBP_Family, WithinClassPct)) +
+  scale_x_discrete(limits = c(NA,"SCP2"), 
+                   labels = c("Control", "HSD17B4")) +
+  facet_wrap(.~LipidSpecies, nrow = 2, scale = 'free_y') +
+  geom_boxplot(outlier.alpha = 0) +
+  theme_base(12)+
+  theme(aspect.ratio = 2,
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
+  geom_quasirandom()
+  
 
-show_the_rest = function(QueryLipidClass) {
-  plot_12 = species_gene %>% 
-    filter(Class %in% c("DCER", "CER", "HCER", "CE", "FFA")) %>%
-    filter(Class == QueryLipidClass) %>% 
-    mutate(
-      is_target = if_else(Gene %in% c('HSD17B4'), "HSD17B4", "Other")
-    )%>% 
-    ggplot(aes(LipidSpecies, MedianWithinClassPct)) +
-    facet_wrap(LipidSpecies~., scales = 'free') +
-    #geom_quasirandom(aes(color = is_target), alpha = 0.7) +
-    # Highlight the top and bottom points with colored dots
-    geom_quasirandom(
-      data = . %>% filter(is_target == 'Other'), color = 'grey50'
-      #position
-    ) + 
-    geom_point(
-      data = . %>% filter(is_target == 'HSD17B4'), 
-      color = '#C00', 
-      size = 3
-    ) +
-    geom_errorbar(
-      data = . %>% filter(is_target == 'HSD17B4'), 
-      color = '#C00', 
-      aes(ymin = MedianWithinClassPct-DeviationWithinClassPct, 
-          ymax = MedianWithinClassPct +DeviationWithinClassPct 
-      ),
-      width = 0
-    )+
-    # Add text labels for the highlighted points
-    #scale_color_manual(values = c( "Other" = "dodgerblue", "HSD17B4" = "firebrick")) +
-    #scale_size_manual(values = c("HSD17B4" = 3, "Other" = 1)) +
-    theme(axis.text.x = element_blank(),
-          #axis.ticks.x = element_blank(),
-          aspect.ratio = 0.5) +
-    labs(title = 
-           paste(
-             'All lipids of those that contain', 
-             QueryLipidClass
-           ),
-         y = 'Median within Class Percentage',
-         x = '')
-  return(plot_12)
-}
+#
+species %>% 
+  filter(Gene == 'HSD17B4' | is.na(LBP_Family)) %>% 
+  filter(Class == 'CE') %>% 
+  ggplot(aes(LBP_Family, WithinClassPct)) +
+  scale_x_discrete(limits = c(NA,"SCP2"), 
+                   labels = c("Control", "HSD17B4")) +
+  facet_wrap(.~LipidSpecies, nrow = 4, scale = 'free_y') +
+  geom_boxplot(outlier.alpha = 0) +
+  theme_base(12)+
+  theme(aspect.ratio = 2,
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
+  geom_quasirandom()
+  
 
-
-show_the_rest("CER")
-show_the_rest("DCER")
-show_the_rest("HCER")
-show_the_rest("CE")
-show_the_rest("FFA")
+#
+species %>% 
+  filter(Gene == 'HSD17B4' | is.na(LBP_Family)) %>% 
+  filter(Class == 'FFA') %>% 
+  ggplot(aes(LBP_Family, WithinClassPct)) +
+  scale_x_discrete(limits = c(NA,"SCP2"), 
+                   labels = c("Control", "HSD17B4")) +
+  facet_wrap(.~LipidSpecies, nrow = 4, scale = 'free_y') +
+  geom_boxplot(outlier.alpha = 0) +
+  theme_base(12)+
+  theme(aspect.ratio = 2,
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
+  geom_quasirandom()
+  
 
 
 ```
@@ -826,24 +902,23 @@ species_long2short %>%
     )
   ) %>% 
   ungroup() %>% 
-  ggplot(aes(1, Median_LongToShortRatio)) +
+  ggplot(aes(x = "", y = Median_LongToShortRatio)) +
   facet_wrap(Class~Tail1DB, scale = 'free') +
-  geom_quasirandom(color = "grey60", alpha = 0.7) +
-  # Highlight the top and bottom points with colored dots
-  # geom_point(
-  #   data = . %>% filter(!is.na(highlight_type)),
-  #   aes(color = highlight_type),
-  #   size = 2.5
-  # ) +
-  # Add text labels for the highlighted points
+    geom_quasirandom(
+    data = . %>% filter(is.na(highlight_type)),
+                        color = "grey60", alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(color = highlight_type),
+                         alpha = 0.7) +
   geom_text_repel(
     data = . %>% filter(!is.na(highlight_type)),
     aes(label = Gene, color = highlight_type),
     size = 3.5,
     max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
     box.padding = 0.5,
-    point.padding = 0.3, 
-    nudge_x = 1
+    #nudge_x = 1,
+    point.padding = 0.3
   ) +
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
 
@@ -858,6 +933,7 @@ species_long2short %>%
 
 ```{R}
 #zscore function
+# YOU ARE HERE
 z.score = 
   function(x) {
     Score = (x - mean(x, na.rm = T)) - sd(x, na.rm = T)
@@ -930,7 +1006,6 @@ species.ether %>%
   ) +
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
   
-
 
 
 ```
@@ -1008,7 +1083,13 @@ species.DHA %>%
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
   
 
-
-
-
 ```
+
+Original commit
+``git commit -m "initial commit"``
+``git push origin main``
+
+``git config http.postBuffer 524288000 ``
+``git pull & git push ``
+``git commit -m “Update files” ``
+``git pull & git push``
