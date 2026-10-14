@@ -174,24 +174,37 @@ No LPC 26:0
 HSD17B4 appears as an interesting candidate. Let’s investigate little
 further.
 
-![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-3.png)<!-- -->![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-4.png)<!-- -->
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->
+
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-19-2.png)<!-- -->
 
 ## Analysis 3: Chain-length ratios
 
 C26:0-containing/C22:0-containing species within the same class
 
-![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+
+It is annoying that there are only a few C26-lipids detected.
 
 ## Analysis 4: Ether PC and PE
 
 - Ether species relative to corresponding diacyl species; plasmalogens
   separately if resolved
 
-![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+
+BNIPL, TRIO, OSBP2 look interesting let’s dive there.
+
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
 
 ## Analysis 5: DHA-containing lipids
 
-![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+What seems intersting, 5 (OSBP2), GLTPD2 (45), 48,
+![](PeroxisomalFunction_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
 Original commit `git commit -m "initial commit"` `git push origin main`
 

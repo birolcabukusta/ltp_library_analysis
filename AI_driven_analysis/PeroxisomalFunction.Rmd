@@ -51,6 +51,7 @@ library(ggthemes)
 library(ggbeeswarm)
 library(ggsignif)
 library(reshape2)
+library(ggview)
 
 knitr::opts_chunk$set(echo = F,warning = FALSE,
   message = FALSE,fig.width = 10,fig.height = 7
@@ -683,7 +684,7 @@ species_gene %>%
 - Look for a coordinated shift toward longer chains
 
 
-```{R}
+```{R, fig.height =9, fig.width = 21}
 # species_gene %>% 
 #   filter(!Class == 'PA') %>% 
 #   filter(Tail_1 > 230) %>% 
@@ -738,15 +739,18 @@ species_gene %>%
     nudge_x = 1
   ) +
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) +
-  facet_wrap(~LipidSpecies, scales = 'free') +
+  facet_wrap(~LipidSpecies, scales = 'free', nrow = 3) +
   #theme_minimal() +
   #labs(color = "Highlighted") +
     theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank()
-        #aspect.ratio = 0.5
+        axis.ticks.x = element_blank(),
+        aspect.ratio = 1,
+        legend.position = "none"
         ) +
   labs(title = 'All lipids with VLCFA',
-       y = 'Median within Class Percentage')
+       y = 'Median within Class Percentage') 
+
+
 
 ```
 
@@ -775,7 +779,7 @@ species_gene %>%
 
 HSD17B4 appears as an interesting candidate. Let's investigate little further.
 
-```{R}
+```{R, fig.height = 9, fig.width = 18}
 
 #
 species %>% 
@@ -809,7 +813,9 @@ species %>%
         axis.text.x = element_text(angle = 45, hjust = 1)) +
   geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
   geom_quasirandom()
-  
+```
+
+```{R, fig.width = 21, fig.height = 18}
 
 #
 species %>% 
@@ -825,7 +831,6 @@ species %>%
         axis.text.x = element_text(angle = 45, hjust = 1)) +
   geom_signif(comparison= list(c(1,2)), test = t.test, tip_length = 0, colour = '#C00', y_position = 0) +
   geom_quasirandom()
-  
 
 #
 species %>% 
@@ -851,7 +856,7 @@ species %>%
 
 C26:0-containing/C22:0-containing species within the same class
 
-```{R}
+```{R, fig.height = 6, fig.width = 9}
 
   
 species_long2short = species %>%
@@ -903,7 +908,7 @@ species_long2short %>%
   ) %>% 
   ungroup() %>% 
   ggplot(aes(x = "", y = Median_LongToShortRatio)) +
-  facet_wrap(Class~Tail1DB, scale = 'free') +
+  facet_wrap(Tail1DB~Class, scale = 'free') +
     geom_quasirandom(
     data = . %>% filter(is.na(highlight_type)),
                         color = "grey60", alpha = 0.7) +
@@ -920,10 +925,13 @@ species_long2short %>%
     #nudge_x = 1,
     point.padding = 0.3
   ) +
+  theme(aspect.ratio = 1) +
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
 
 
 ```
+
+It is annoying that there are only a few C26-lipids detected. 
 
 
 ## Analysis 4:  Ether PC and PE
@@ -931,18 +939,18 @@ species_long2short %>%
 -   Ether species relative to corresponding diacyl species; plasmalogens separately if resolved
 
 
-```{R}
-#zscore function
-# YOU ARE HERE
-z.score = 
-  function(x) {
-    Score = (x - mean(x, na.rm = T)) - sd(x, na.rm = T)
-    # if(is.infinite(Score))
-    #   return(NA)
-    # else
-    return(Score)
-  
-}
+```{R, fig.height = 4.5, fig.width = 6}
+# #zscore function
+# # YOU ARE HERE
+# z.score = 
+#   function(x) {
+#     Score = (x - mean(x, na.rm = T)) - sd(x, na.rm = T)
+#     # if(is.infinite(Score))
+#     #   return(NA)
+#     # else
+#     return(Score)
+#   
+# }
 
 
 #grouped by Tail_1 as it is the O- or P- linked tail.
@@ -963,22 +971,24 @@ species.ether =
     SampleKey+Gene+Roster+Tail_1~Class,
     value.var = 'tails.sum.nmol'
   ) %>% 
-  group_by(Gene, Roster, Tail_1) %>% 
-  summarise(meanPEO2PE = mean(PEO/PE, na.rm = T),
-            meanPEP2PE = mean(PEP/PE, na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Tail_1) %>% 
-  mutate(
-    z.peo.2.pe.ratio = z.score(meanPEO2PE),
-    z.pep.2.pe.ratio = z.score(meanPEP2PE)
-  ) 
+    mutate(PEO.2.PE = PEO/PE,
+           PEP.2.PE = PEP/PE) %>% 
+    ungroup() %>% 
+    group_by(Gene, Roster, Tail_1) %>% 
+    summarise(mean.PEO = mean(PEO.2.PE, na.rm = T),
+              mean.PEP = mean(PEP.2.PE, na.rm = T),
+              sd.PEO = sd(PEO.2.PE, na.rm = T),
+              sd.PEP = sd(PEP.2.PE, na.rm = T)
+              ) %>% 
+    ungroup() 
   
 N = 3
+
 species.ether %>% 
   group_by(Tail_1) %>% 
   mutate(
-    rank_desc = row_number(desc(meanPEP2PE)), # 1 = Highest
-    rank_asc  = row_number(meanPEP2PE),       # 1 = Lowest
+    rank_desc = row_number(desc(mean.PEO)), # 1 = Highest
+    rank_asc  = row_number(mean.PEO),       # 1 = Lowest
     highlight_type = case_when(
       rank_desc <= N ~ "Top N",
       rank_asc  <= N ~ "Bottom N",
@@ -986,9 +996,9 @@ species.ether %>%
     )
   ) %>% 
   #filter( Tail_1 == 161) %>% 
-  #filter(Roster < 3) %>% 
+  filter(!is.na(mean.PEO)) %>% 
   ggplot(
-    aes(1, meanPEP2PE
+    aes("", mean.PEO
     )
   ) +
   facet_wrap(.~Tail_1, scales = 'free_y',nrow = 1) +
@@ -1004,11 +1014,132 @@ species.ether %>%
     point.padding = 0.3, 
     nudge_x = 2
   ) +
-  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) +
+  theme(aspect.ratio = 2,
+        legend.position = "none")
+  
+
+```
+```{R fig.height = 4.5, fig.width = 18}
+
+species.ether %>% 
+  group_by(Tail_1) %>% 
+  mutate(
+    rank_desc = row_number(desc(mean.PEP)), # 1 = Highest
+    rank_asc  = row_number(mean.PEP),       # 1 = Lowest
+    highlight_type = case_when(
+      rank_desc <= N ~ "Top N",
+      rank_asc  <= N ~ "Bottom N",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  filter(!is.na(mean.PEP)) %>% 
+  #filter( Tail_1 == 161) %>% 
+  #filter(Roster < 3) %>% 
+  ggplot(
+    aes("", mean.PEP
+    )
+  ) +
+  facet_wrap(.~Tail_1, scales = 'free_y',nrow = 1) +
+  #geom_boxplot(aes(group = Roster)) +
+  #geom_line(group) + 
+  geom_quasirandom() +
+  geom_text_repel(
+    data = . %>% filter(!is.na(highlight_type)),
+    aes(label = Gene, color = highlight_type),
+    size = 3.5,
+    max.overlaps = Inf, # Ensures labels aren't hidden due to crowding
+    box.padding = 0.5,
+    point.padding = 0.3, 
+    nudge_x = 2
+  ) +
+  scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue"))+
+  theme(aspect.ratio = 2)
   
 
 
 ```
+
+
+BNIPL, TRIO, OSBP2 look interesting let's dive there.
+
+```{R fig.width = 15, fig.height = 3}
+
+
+species.ether.4.selected = 
+  species %>%  
+  filter(Class %in% c('PE','PEP','PEO')) %>% 
+  group_by(
+    SampleKey,
+    Gene, 
+    Roster,
+    Tail_1,
+    Class
+  ) %>% 
+  summarise(tails.sum.nmol = sum(nmol, na.rm = T)) %>% 
+  ungroup() %>% 
+  dcast(
+    SampleKey+Gene+Roster+Tail_1~Class,
+    value.var = 'tails.sum.nmol'
+  ) %>% 
+    mutate(PEO.2.PE = PEO/PE,
+           PEP.2.PE = PEP/PE) %>% 
+    ungroup() 
+    
+species.ether.4.selected %>% 
+  filter(Roster %in% 91:96 | Gene %in% c("BNIPL", "TRIO", "OSBP2")) %>% 
+  mutate(
+    ID2 = case_when(
+      Roster %in% 91:96 ~ "Control",
+      .default = Gene)
+      #TRUE ~ NA_character_
+    ) %>% 
+  filter(! is.na(PEP.2.PE)) %>% 
+  ggplot(
+    aes(
+      ID2, PEP.2.PE
+    )
+  ) +
+  scale_x_discrete(limits = c("Control",'BNIPL','TRIO','OSBP2')) +
+  facet_wrap(.~Tail_1, scales = 'free_y', nrow = 1) +
+  geom_boxplot() +
+  geom_quasirandom() +
+  geom_signif(comparison= list(c(1,2), c(1,3), c(1,4)), 
+              test = t.test, tip_length = 0, colour = '#C00', 
+              map_signif_level = T,
+              y_position = c(0,0.01,0.02,0.03)) +
+  theme(aspect.ratio = 1)
+
+```
+  
+```{R, fig.width = 6, fig.height =3}
+  
+species.ether.4.selected %>% 
+  filter(Roster %in% 91:96 | Gene %in% c("BNIPL", "TRIO", "OSBP2")) %>% 
+  mutate(
+    ID2 = case_when(
+      Roster %in% 91:96 ~ "Control",
+      .default = Gene)
+      #TRUE ~ NA_character_
+    ) %>% 
+  filter(! is.na(PEO.2.PE)) %>% 
+  ggplot(
+    aes(
+      ID2, PEO.2.PE
+    )
+  ) +
+  scale_x_discrete(limits = c("Control",'BNIPL','TRIO','OSBP2')) +
+  facet_wrap(.~Tail_1, scales = 'free_y', nrow = 1) +
+  geom_boxplot() +
+  geom_quasirandom() +
+  theme(aspect.ratio = 1) +
+  geom_signif(comparison= list(c(1,2), c(1,3), c(1,4)), 
+              test = t.test, tip_length = 0, colour = '#C00',
+              map_signif_level = T,
+              y_position = c(0,0.01,0.02,0.03))
+
+```
+
 
 
 ## Analysis 5:  DHA-containing lipids
@@ -1033,10 +1164,7 @@ species.DHA =
   group_by(Gene, Roster) %>% 
   summarise(meanDHA = mean(dha.total.perc, na.rm = T),
             sdDHA = sd(dha.total.perc, na.rm = T)) %>% 
-  ungroup() %>% 
-  mutate(
-    z.DHA = z.score(meanDHA)
-  ) 
+  ungroup() 
   
 N = 5
 species.DHA %>% 
@@ -1082,6 +1210,39 @@ species.DHA %>%
   ) +
   scale_color_manual(values = c("Top N" = "firebrick", "Bottom N" = "dodgerblue")) 
   
+
+```
+What seems intersting, 5 (OSBP2), GLTPD2 (45), 48, 
+```{R}
+#species.DHA.4.selected = 
+species %>%  
+  filter(Tail_1 == 226 | Tail_2 == 226) %>% 
+  group_by(
+    SampleKey,
+    Gene, 
+    Roster,
+  ) %>% 
+  summarise(dha.total.perc = sum(SampleMolPct, na.rm = T)) %>% 
+  ungroup() %>% 
+  filter(Roster %in% c(5,45, 48, 91:96)) %>% 
+  mutate(
+    ID2 = case_when(
+      Roster %in% 91:96 ~ "Control",
+      .default = Gene)
+      #TRUE ~ NA_character_
+    ) %>% 
+  ggplot(
+    aes(ID2, dha.total.perc)
+  ) +
+  geom_boxplot(outlier.alpha = 0) +
+  geom_quasirandom() +
+  geom_signif(comparison= list(c(1,2), c(1,3), c(1,4)), 
+              test = t.test, tip_length = 0, colour = '#C00',
+              map_signif_level = T,
+              y_position = c(0.6,0.7,0.8))
+  
+
+
 
 ```
 
